@@ -1,0 +1,11 @@
+{
+  "name": "@terms-and-conditions-analyzer/frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint . --max-warnings=0",
+    "build": "node -e \"console.log('Frontend build placeholder: no bundler configured yet')\"",
+    "test": "node tests/smoke.test.js"
+  }
+}
