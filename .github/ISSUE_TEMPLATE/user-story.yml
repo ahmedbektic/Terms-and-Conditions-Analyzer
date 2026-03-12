@@ -1,0 +1,141 @@
+name: User Story
+description: Create a backlog story using the team's Jira-style story methodology.
+title: "[Story]: As a <user>, I want <goal>, so that <benefit>"
+labels:
+  - type:story
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Jira / story reference: {INSERT URL HERE}
+
+  - type: input
+    id: user_story
+    attributes:
+      label: User story statement
+      description: Write it exactly in the form "As a ..., I want ..., so that ..."
+      placeholder: As a personal user, I want to log in, so that I can view my saved summaries.
+    validations:
+      required: true
+
+  - type: textarea
+    id: explanation
+    attributes:
+      label: Explanation / context
+      description: Why does this story matter? What user problem or project goal does it support?
+      placeholder: Explain the motivation and context for this story.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+      description: One requirement per line.
+      placeholder: |
+        - User can access login screen from web app or extension
+        - User can sign in successfully
+        - Session expires securely after inactivity
+    validations:
+      required: true
+
+  - type: textarea
+    id: stretch_acceptance_criteria
+    attributes:
+      label: Stretch acceptance criteria
+      description: One requirement per line.
+      placeholder: |
+        - Criterion that is not necessarily required, but nice to have
+    validations:
+      required: false
+
+  - type: textarea
+    id: implementation_notes
+    attributes:
+      label: Notes / constraints
+      description: Dependencies, technical notes, edge cases, links, or design constraints.
+      placeholder: Mention blockers, dependencies, APIs, architecture notes, or linked docs.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: sprint
+    attributes:
+      label: Sprint
+      description: Record the intended sprint. Also add the matching sprint label manually, e.g. sprint:1.
+      options:
+        - Sprint 1
+        - Sprint 2
+        - Sprint 3
+        - Sprint 4
+        - Sprint 5
+        - Backlog / Unscheduled
+    validations:
+      required: true
+
+  - type: dropdown
+    id: story_points
+    attributes:
+      label: Story points
+      description: Record the estimate. Also add the matching story-point label manually, e.g. sp:8.
+      options:
+        - "1"
+        - "2"
+        - "3"
+        - "5"
+        - "8"
+        - "13"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Low
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      description: Also add a matching area label manually if you use them.
+      options:
+        - Frontend
+        - Backend
+        - AI / Analysis
+        - Extension
+        - Infrastructure / DevOps
+        - Data / Storage
+        - Security / Auth
+        - Notifications
+        - QA / Reliability
+    validations:
+      required: true
+
+  - type: textarea
+    id: definition_of_done
+    attributes:
+      label: Definition of done
+      description: What must be true before this story can be closed?
+      placeholder: |
+        - Acceptance criteria satisfied
+        - Tests added or updated
+        - Documentation updated if needed
+        - Reviewed and merged
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Note
+      description: Any additional notes?
+      placeholder: |
+    validations:
+      required: false
