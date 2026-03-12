@@ -4,10 +4,14 @@ title: "[Story]: As a <user>, I want <goal>, so that <benefit>"
 labels:
   - type:story
 body:
-  - type: markdown
+  - type: input
+    id: jira_story_reference
     attributes:
-      value: |
-        Jira / story reference: {INSERT URL HERE}
+      label: Jira / story reference
+      description: Link the corresponding Jira ticket or external story item (if applicable).
+      placeholder: https://your-org.atlassian.net/browse/ABC-123
+    validations:
+      required: false
 
   - type: input
     id: user_story
