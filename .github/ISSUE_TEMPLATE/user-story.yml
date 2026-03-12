@@ -136,6 +136,6 @@ body:
     attributes:
       label: Note
       description: Any additional notes?
-      placeholder: |
+      placeholder: Add any optional context, links, or decisions.
     validations:
       required: false
