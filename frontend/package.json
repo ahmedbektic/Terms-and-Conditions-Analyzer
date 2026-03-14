@@ -6,6 +6,19 @@
   "scripts": {
     "lint": "eslint . --max-warnings=0",
     "build": "node -e \"console.log('Frontend build placeholder: no bundler configured yet')\"",
-    "test": "node tests/smoke.test.js"
+    "test": "vitest run --environment jsdom --pool=threads"
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^27.2.0",
+    "vite": "^8.0.0",
+    "vitest": "^4.0.7"
   }
 }

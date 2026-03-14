@@ -1,3 +1,5 @@
-import assert from 'node:assert/strict';
+import { expect, it } from 'vitest';
 
-assert.equal(1 + 1, 2);
+it('runs a frontend smoke assertion', () => {
+  expect(1 + 1).toBe(2);
+});

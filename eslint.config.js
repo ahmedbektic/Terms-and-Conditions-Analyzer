@@ -41,6 +41,7 @@ module.exports = [
       ...reactPlugin.configs.recommended.rules,
       ...reactHooksPlugin.configs.recommended.rules,
       'react/react-in-jsx-scope': 'off',
+      'react/prop-types': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         {

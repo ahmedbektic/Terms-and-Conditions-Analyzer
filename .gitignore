@@ -90,3 +90,8 @@ test-results/
 # Deployment / hosting
 .vercel/
 .netlify/
+
+# Local planning / agent artifacts
+AGENTS.md
+CSCI3300ProjectPlanning.txt
+*.xml
