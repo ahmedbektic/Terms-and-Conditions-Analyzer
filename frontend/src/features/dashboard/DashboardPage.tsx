@@ -51,46 +51,55 @@ export function DashboardPage({
 
   return (
     <main className="dashboard">
-      <header className="dashboard-header">
+      <header className="dashboard-topbar">
         <div className="dashboard-header-copy">
           <h1>Terms and Conditions Dashboard</h1>
-          <p>Submit terms, generate analysis, and review saved reports.</p>
+          <p className="dashboard-subtitle">
+            Submit terms, generate analysis, and review saved reports.
+          </p>
           {contextLabel ? <p className="dashboard-user">{contextLabel}</p> : null}
         </div>
         {headerAction ? <div className="header-actions">{headerAction}</div> : null}
       </header>
 
-      {errorMessage ? (
-        <div className="error-banner" role="alert">
-          <span>{errorMessage}</span>
-          <button type="button" onClick={clearMessages}>
-            Dismiss
-          </button>
-        </div>
+      {errorMessage || successMessage ? (
+        <section className="dashboard-feedback" aria-live="polite">
+          {errorMessage ? (
+            <div className="error-banner" role="alert">
+              <span>{errorMessage}</span>
+              <button type="button" className="button-link" onClick={clearMessages}>
+                Dismiss
+              </button>
+            </div>
+          ) : null}
+
+          {successMessage ? (
+            <div className="success-banner" role="status">
+              <span>{successMessage}</span>
+              <button type="button" className="button-link" onClick={clearMessages}>
+                Dismiss
+              </button>
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
-      {successMessage ? (
-        <div className="success-banner" role="status">
-          <span>{successMessage}</span>
-          <button type="button" onClick={clearMessages}>
-            Dismiss
-          </button>
+      <section className="dashboard-layout">
+        {/* Left column handles submission + retrieval controls; right column is read-only analysis output. */}
+        <div className="dashboard-column dashboard-column-primary">
+          <AgreementSubmissionForm onSubmit={submitAndAnalyze} isSubmitting={isSubmitting} />
+          <ReportHistoryList
+            reports={reportHistory}
+            selectedReportId={selectedReport?.id ?? null}
+            isLoadingHistory={isLoadingHistory}
+            onSelectReport={selectReport}
+          />
         </div>
-      ) : null}
-
-      <AgreementSubmissionForm onSubmit={submitAndAnalyze} isSubmitting={isSubmitting} />
-
-      <section className="grid">
-        <AnalysisSummaryCard report={selectedReport} isLoadingReport={isLoadingReport} />
-        <FlaggedClausesList report={selectedReport} />
+        <div className="dashboard-column dashboard-column-analysis">
+          <AnalysisSummaryCard report={selectedReport} isLoadingReport={isLoadingReport} />
+          <FlaggedClausesList report={selectedReport} />
+        </div>
       </section>
-
-      <ReportHistoryList
-        reports={reportHistory}
-        selectedReportId={selectedReport?.id ?? null}
-        isLoadingHistory={isLoadingHistory}
-        onSelectReport={selectReport}
-      />
     </main>
   );
 }

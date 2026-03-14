@@ -12,6 +12,7 @@
 
 import { useMemo, useState } from 'react';
 
+import { PanelStateMessage } from '../../components/ui/PanelStateMessage';
 import { createDashboardApiClient } from '../../lib/api/createDashboardApiClient';
 import { DashboardPage } from '../dashboard/DashboardPage';
 import { useAuth } from './AuthProvider';
@@ -48,8 +49,11 @@ export function AuthEntryPoint() {
     return (
       <main className="auth-shell">
         <section className="auth-card panel">
-          <h1 className="panel-title">Checking your session...</h1>
-          <p className="muted">Loading authentication status.</p>
+          <header className="panel-header">
+            <h1 className="panel-title auth-title">Checking your session...</h1>
+            <p className="panel-description">Loading authentication status.</p>
+          </header>
+          <PanelStateMessage message="Please wait while your session is validated." compact />
         </section>
       </main>
     );
