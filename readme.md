@@ -78,6 +78,33 @@ Run all commands from repository root:
 - `py -3.10 -m black --check backend`
 - `npm run test:frontend`
 
+## Code Quality Commands
+
+Use these before opening a PR to match CI behavior.
+
+Backend (Python):
+
+- Auto-format: `py -3.10 -m black backend`
+- Format check only: `py -3.10 -m black --check backend`
+- Run tests: `py -3.10 -m pytest backend/tests -q`
+
+If you prefer the project venv explicitly:
+
+- `.\.venv\Scripts\python.exe -m black backend`
+- `.\.venv\Scripts\python.exe -m black --check backend`
+- `.\.venv\Scripts\python.exe -m pytest backend\tests -q`
+
+Frontend (React/TypeScript):
+
+- Lint check: `npm run lint:frontend`
+- Lint autofix: `npm run -w frontend lint -- --fix`
+- Run tests: `npm run test:frontend`
+
+CI currently runs:
+
+- Frontend: lint, build, test
+- Backend: `black --check backend` and `pytest backend/tests`
+
 ## Environment Configuration
 
 See:

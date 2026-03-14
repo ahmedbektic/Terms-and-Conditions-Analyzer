@@ -52,9 +52,7 @@ def _build_persistence_dependencies():
     return agreement_repository, report_repository, storage
 
 
-_agreement_repository, _report_repository, _persistence_storage = (
-    _build_persistence_dependencies()
-)
+_agreement_repository, _report_repository, _persistence_storage = _build_persistence_dependencies()
 _analysis_provider = DeterministicAnalysisProvider()
 _analysis_service = AnalysisOrchestrationService(
     agreement_repository=_agreement_repository,
