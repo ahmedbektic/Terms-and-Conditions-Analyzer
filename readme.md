@@ -77,6 +77,7 @@ Run all commands from repository root:
 - `py -3.10 -m pytest backend/tests -q`
 - `py -3.10 -m black --check backend`
 - `npm run test:frontend`
+- `npm run -w frontend test -- tests/auth.test.tsx` (single frontend test file)
 
 ## Code Quality Commands
 
@@ -124,6 +125,16 @@ Frontend optional env var:
   - default fallback (if unset): `http://localhost:8000/api/v1`
   - set this when your backend is not at the default URL, or when you explicitly want `127.0.0.1`.
   - copy `frontend/.env.example` to `frontend/.env.local`, then edit as needed.
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+Backend auth env vars:
+
+- `AUTH_REQUIRE_JWT_SIGNATURE_VERIFICATION`
+- `SUPABASE_JWT_AUDIENCE`
+- `SUPABASE_JWT_ISSUER` (or `SUPABASE_URL` for derived issuer)
+- `SUPABASE_JWT_JWKS_URL` (or derived from issuer)
+- `SUPABASE_JWT_SECRET` (alternative to JWKS)
 
 ## Persistence Notes
 
@@ -136,3 +147,4 @@ In Postgres mode, the backend uses tables:
 
 See `docs/` for style and naming conventions.
 For dashboard feature flow and extension seams, see `docs/dashboard-analysis-handoff.md`.
+For auth boundaries and ownership semantics, see `docs/auth-architecture-scrum11.md`.

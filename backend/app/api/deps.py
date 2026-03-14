@@ -4,7 +4,13 @@ Repository implementations are selected via config so routes/services remain
 unchanged whether persistence is memory or Postgres/Supabase.
 """
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException
+
+from ..auth import (
+    AuthSubjectResolver,
+    SubjectResolutionError,
+    build_request_subject_resolver,
+)
 
 from ..core.config import settings
 from ..repositories.in_memory import (
@@ -61,29 +67,71 @@ _analysis_service = AnalysisOrchestrationService(
 )
 
 
+def _build_subject_resolver() -> AuthSubjectResolver:
+    """Create auth subject resolver with startup-time config validation.
+
+    This is the only place that wires verifier + ownership policy settings.
+    Routes consume `get_request_subject` and stay unaware of verification details.
+    """
+
+    return build_request_subject_resolver(
+        jwt_secret=settings.supabase_jwt_secret,
+        jwks_url=settings.effective_supabase_jwks_url,
+        expected_issuer=settings.effective_supabase_jwt_issuer,
+        expected_audience=settings.supabase_jwt_audience,
+        require_signature_verification=settings.auth_require_jwt_signature_verification,
+        jwks_cache_ttl_seconds=settings.supabase_jwks_cache_ttl_seconds,
+        jwks_http_timeout_seconds=settings.supabase_jwks_http_timeout_seconds,
+        jwt_leeway_seconds=settings.supabase_jwt_leeway_seconds,
+    )
+
+
+_request_subject_resolver = _build_subject_resolver()
+
+
 def get_analysis_service() -> AnalysisOrchestrationService:
     """Return the singleton orchestration service used by request handlers."""
 
     return _analysis_service
 
 
-def get_request_subject(x_session_id: str | None = Header(default=None)) -> RequestSubject:
-    """Resolve the caller identity used for owner-scoped report access.
+def get_request_subject(
+    authorization: str | None = Header(default=None),
+) -> RequestSubject:
+    """Resolve the owner subject from auth headers.
 
-    TODO: Replace session-header extraction with auth-token/JWT subject extraction
-    once authentication is introduced.
+    Dashboard and future extension callers share this transport boundary:
+    - `Authorization: Bearer <supabase_access_token>` for authenticated access
+
+    Request flow:
+    1) extract auth headers from transport
+    2) resolve owner from bearer token
+    3) map to service-layer `RequestSubject`
+
+    This keeps auth parsing/verification at the dependency layer so services
+    and repositories continue to operate on abstract ownership fields only.
+    extension callers should reuse the same Bearer-token path.
     """
 
-    if not x_session_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing required X-Session-Id header.",
+    try:
+        resolved = _request_subject_resolver.resolve(
+            authorization_header=authorization,
         )
-    return RequestSubject(subject_type="anonymous_session", subject_id=x_session_id)
+    except SubjectResolutionError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+
+    return RequestSubject(
+        subject_type=resolved.subject_type,
+        subject_id=resolved.subject_id,
+    )
 
 
 def reset_demo_storage() -> None:
-    """Testing utility for clearing temporary storage state."""
+    """Testing utility for clearing temporary storage state.
+
+    Note: test suites may also monkeypatch `_request_subject_resolver` to run
+    deterministic auth-mode scenarios without process-level env rewiring.
+    """
 
     clear_method = getattr(_persistence_storage, "clear", None)
     if callable(clear_method):

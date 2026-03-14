@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS agreements (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- subject_* columns are an auth seam: session id today, user id tomorrow.
+-- subject_* columns are the ownership seam used by service/repository layers.
+-- we use Supabase JWT subject values (subject_type='supabase_user').
 CREATE INDEX IF NOT EXISTS idx_agreements_owner_created
   ON agreements (subject_type, subject_id, created_at DESC);
 

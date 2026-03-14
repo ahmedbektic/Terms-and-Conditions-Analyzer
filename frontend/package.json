@@ -9,6 +9,7 @@
     "test": "vitest run --environment jsdom --pool=threads"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },

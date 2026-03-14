@@ -25,10 +25,34 @@ body {
   margin: 0;
 }
 
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dashboard-header-copy {
+  max-width: 72ch;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .dashboard-header p {
   margin-top: 6px;
   margin-bottom: 0;
   color: #5a6674;
+}
+
+.dashboard-user {
+  margin-top: 6px;
+  margin-bottom: 0;
+  font-size: 0.9rem;
+  color: #44596f;
 }
 
 .panel {
@@ -87,6 +111,12 @@ button {
   background: #1f3f61;
   color: #ffffff;
   cursor: pointer;
+}
+
+.button-secondary {
+  border-color: #c3cedb;
+  background: #ffffff;
+  color: #0f1720;
 }
 
 button[disabled] {
@@ -216,6 +246,52 @@ button[disabled] {
   color: #5a6674;
 }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(560px, 100%);
+}
+
+.auth-subtitle {
+  margin-top: 0;
+}
+
+.auth-actions {
+  flex-wrap: wrap;
+}
+
+.auth-divider {
+  position: relative;
+  text-align: center;
+  margin: 12px 0;
+  color: #667585;
+}
+
+.auth-divider::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px solid #d4dde7;
+}
+
+.auth-divider span {
+  position: relative;
+  display: inline-block;
+  padding: 0 8px;
+  background: #ffffff;
+}
+
+.auth-google-button {
+  width: 100%;
+}
+
 @media (max-width: 640px) {
   .dashboard {
     padding: 14px;
@@ -224,5 +300,8 @@ button[disabled] {
   .meta-grid {
     grid-template-columns: 1fr;
   }
-}
 
+  .auth-shell {
+    padding: 14px;
+  }
+}

@@ -10,9 +10,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..deps import get_analysis_service, get_request_subject
-from ...repositories.models import StoredFlaggedClause, StoredReport
+from ..mappers.reports import to_report_response
 from ...schemas.reports import (
-    FlaggedClauseResponse,
     ReportAnalyzeRequest,
     ReportListItemResponse,
     ReportResponse,
@@ -51,7 +50,7 @@ def submit_and_analyze(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
         ) from error
 
-    return _to_report_response(report)
+    return to_report_response(report)
 
 
 @router.get("", response_model=list[ReportListItemResponse])
@@ -90,34 +89,4 @@ def get_report(
     except ReportNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 
-    return _to_report_response(report)
-
-
-def _to_report_response(report: StoredReport) -> ReportResponse:
-    """Map persistence model to transport schema."""
-
-    return ReportResponse(
-        id=report.id,
-        agreement_id=report.agreement_id,
-        source_type=report.source_type,
-        source_value=report.source_value,
-        raw_input_excerpt=report.raw_input_excerpt,
-        status=report.status,
-        summary=report.summary,
-        trust_score=report.trust_score,
-        model_name=report.model_name,
-        flagged_clauses=[_to_flagged_clause_response(clause) for clause in report.flagged_clauses],
-        created_at=report.created_at,
-        completed_at=report.completed_at,
-    )
-
-
-def _to_flagged_clause_response(clause: StoredFlaggedClause) -> FlaggedClauseResponse:
-    """Map persistence clause model to response schema."""
-
-    return FlaggedClauseResponse(
-        clause_type=clause.clause_type,
-        severity=clause.severity,
-        excerpt=clause.excerpt,
-        explanation=clause.explanation,
-    )
+    return to_report_response(report)
