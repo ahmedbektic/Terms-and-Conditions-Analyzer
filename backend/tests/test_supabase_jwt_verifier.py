@@ -20,7 +20,9 @@ def _issue_token(*, sub: str = "user-1", exp_offset_seconds: int = 300, **overri
         "sub": sub,
         "aud": TEST_AUDIENCE,
         "iss": TEST_ISSUER,
-        "exp": int((datetime.now(timezone.utc) + timedelta(seconds=exp_offset_seconds)).timestamp()),
+        "exp": int(
+            (datetime.now(timezone.utc) + timedelta(seconds=exp_offset_seconds)).timestamp()
+        ),
         "email": "user@example.com",
     }
     payload.update(overrides)

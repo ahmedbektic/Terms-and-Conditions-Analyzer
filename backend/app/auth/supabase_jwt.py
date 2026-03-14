@@ -26,7 +26,6 @@ import jwt
 from jwt import ExpiredSignatureError, InvalidAudienceError, InvalidIssuerError, InvalidTokenError
 from jwt import PyJWK
 
-
 ALLOWED_ASYMMETRIC_ALGORITHMS = ("RS256", "RS384", "RS512", "ES256", "ES384", "EdDSA")
 ALLOWED_SUPABASE_SECRET_ALGORITHMS = ("HS256",)
 

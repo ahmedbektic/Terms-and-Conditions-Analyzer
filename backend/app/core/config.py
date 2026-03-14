@@ -94,9 +94,7 @@ class Settings:
         """Parse CORS origins from a comma-separated env var."""
 
         return [
-            origin.strip()
-            for origin in self.cors_allowed_origins_csv.split(",")
-            if origin.strip()
+            origin.strip() for origin in self.cors_allowed_origins_csv.split(",") if origin.strip()
         ]
 
 

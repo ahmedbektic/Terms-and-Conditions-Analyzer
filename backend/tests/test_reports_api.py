@@ -19,7 +19,9 @@ def _issue_token(*, sub: str, exp_offset_seconds: int = 3600) -> str:
         "sub": sub,
         "aud": TEST_AUDIENCE,
         "iss": TEST_ISSUER,
-        "exp": int((datetime.now(timezone.utc) + timedelta(seconds=exp_offset_seconds)).timestamp()),
+        "exp": int(
+            (datetime.now(timezone.utc) + timedelta(seconds=exp_offset_seconds)).timestamp()
+        ),
     }
     return jwt.encode(payload, TEST_SECRET, algorithm="HS256")
 

@@ -31,7 +31,9 @@ def _issue_token(
         "sub": sub,
         "aud": TEST_AUDIENCE,
         "iss": TEST_ISSUER,
-        "exp": int((datetime.now(timezone.utc) + timedelta(seconds=exp_offset_seconds)).timestamp()),
+        "exp": int(
+            (datetime.now(timezone.utc) + timedelta(seconds=exp_offset_seconds)).timestamp()
+        ),
         "email": f"{sub}@example.com",
     }
     return jwt.encode(payload, signing_secret, algorithm="HS256")
