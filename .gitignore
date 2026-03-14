@@ -95,3 +95,6 @@ test-results/
 AGENTS.md
 CSCI3300ProjectPlanning.txt
 *.xml
+.agents/
+~/.config/
+SKILLS.md
