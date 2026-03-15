@@ -1,65 +1,46 @@
-// extension/lib/apiClient.ts
-// Pure API client for the extension.
-// It is stateless and requires the access token to be passed on every request.
-// The client aligns with the backend's existing REST contracts.
+import type { ReportAnalyzeRequest, ReportResponse } from "../../frontend/src/lib/api/contracts";
+import { DashboardApiClient } from "../../frontend/src/lib/api/client";
+import type { AuthenticatedSession } from "../../frontend/src/lib/auth/contracts";
+import type { ExtractedTermsPayload } from "./contract";
 
-import { AnalysisResponsePayload, AnalysisRequestPayload } from "./contract";
+// Extension-to-backend adapter that intentionally reuses shared web transport.
 
-export interface BackendApiConfig {
-  /**
-   * Base URL of the backend API (e.g., https://api.yourdomain.com).
-   */
+export interface AnalyzeExtractedTermsOptions {
   baseUrl: string;
+  session: AuthenticatedSession;
+  extracted: ExtractedTermsPayload;
+  fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
+
+export type AnalyzeExtractedTerms = (
+  options: AnalyzeExtractedTermsOptions,
+) => Promise<ReportResponse>;
 
 /**
- * Factory that creates an API client.
- * The returned object contains methods for the supported backend endpoints.
+ * Extension API adapter that reuses the shared SCRUM-11 dashboard transport seam.
+ *
+ * This keeps bearer-token injection and error behavior centralized in
+ * `frontend/src/lib/api/client.ts`, so extension and web do not drift.
  */
-export function createClient(config: BackendApiConfig) {
-  // Ensure baseUrl has no trailing slash for consistency.
-  const base = config.baseUrl.replace(/\/$/, "");
+export const analyzeExtractedTerms: AnalyzeExtractedTerms = async (
+  options: AnalyzeExtractedTermsOptions,
+): Promise<ReportResponse> => {
+  const normalizedTermsText = options.extracted.terms_text.trim();
+  if (!normalizedTermsText) {
+    throw new Error("No extracted terms text is available for analysis.");
+  }
 
-  const request = async <T>(method: string, path: string, body: any, token?: string): Promise<T> => {
-    const url = `${base}${path}`;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`API error ${res.status}: ${text}`);
-    }
-    return res.json() as Promise<T>;
+  const payload: ReportAnalyzeRequest = {
+    terms_text: normalizedTermsText,
+    source_url: options.extracted.source_url ?? undefined,
+    title: options.extracted.title ?? undefined,
   };
 
-  return {
-    /**
-     * One‑shot analyze request.
-     * Sends the raw T&C text to the backend.
-     */
-    async analyze(text: string, token: string): Promise<AnalysisResponsePayload> {
-      return request<AnalysisResponsePayload>("POST", "/api/v1/reports/analyze", { text }, token);
-    },
+  const apiClient = new DashboardApiClient({
+    baseUrl: options.baseUrl,
+    getAccessToken: () => options.session.accessToken,
+    fetchImpl: options.fetchImpl,
+  });
 
-    /**
-     * Retrieve a list of saved reports for the authenticated user.
-     * Shape of response is inferred from the backend; caller can type as needed.
-     */
-    async listReports(token: string): Promise<any> {
-      return request<any>("GET", "/api/v1/reports", null, token);
-    },
-
-    /**
-     * Retrieve a specific report by ID.
-     */
-    async getReport(reportId: string, token: string): Promise<any> {
-      return request<any>("GET", `/api/v1/reports/${reportId}`, null, token);
-    },
-  };
-}
+  return apiClient.submitAndAnalyze(payload);
+};

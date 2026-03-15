@@ -1,24 +1,38 @@
-// extension/popup/index.html
-// Updated to style success and error states and ensure elements are properly referenced.
-
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Terms & Conditions Analyzer</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 12px; width: 320px; }
-    #status { margin-bottom: 8px; }
-    button { margin-right: 4px; }
-    #output { white-space: pre-wrap; margin-top: 8px; background: #f9f9f9; padding: 8px; border: 1px solid #ddd; }
-    .hidden { display: none !important; }
-  </style>
-</head>
-<body>
-  <div id="status">Loading…</div>
-  <button id="loginBtn" class="hidden">Log in</button>
-  <button id="analyzeBtn" class="hidden">Analyze page</button>
-  <pre id="output"></pre>
-  <script src="./index.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Terms & Conditions Analyzer</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 12px;
+        width: 320px;
+      }
+      #status {
+        margin-bottom: 8px;
+      }
+      button {
+        margin-right: 4px;
+      }
+      #output {
+        white-space: pre-wrap;
+        margin-top: 8px;
+        background: #f9f9f9;
+        padding: 8px;
+        border: 1px solid #ddd;
+      }
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">Loading...</div>
+    <button id="loginBtn" class="hidden">Log in</button>
+    <button id="analyzeBtn" class="hidden">Analyze page</button>
+    <pre id="output"></pre>
+    <script src="./index.js"></script>
+  </body>
 </html>

@@ -19,6 +19,10 @@ import type {
   AuthenticatedSession,
   PasswordCredentials,
 } from './contracts';
+import {
+  AUTH_PROVIDER_GOOGLE,
+  normalizeProviderSignInError,
+} from './providerErrors';
 
 function readEnvValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -133,11 +137,14 @@ class SupabaseBrowserAuthClient implements AuthClient {
         ? window.location.origin
         : undefined;
     const { error } = await this.supabaseClient.auth.signInWithOAuth({
-      provider: 'google',
+      provider: AUTH_PROVIDER_GOOGLE,
       options: redirectTo ? { redirectTo } : undefined,
     });
     if (error) {
-      throw new Error(error.message);
+      // Shared normalization keeps auth setup failures readable and consistent
+      // with extension runtime adapter messages.
+      const normalized = normalizeProviderSignInError(error, AUTH_PROVIDER_GOOGLE);
+      throw new Error(normalized.message);
     }
   }
 

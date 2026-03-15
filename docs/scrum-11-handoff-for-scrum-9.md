@@ -18,6 +18,7 @@ Primary boundaries:
 - Auth contracts/provider adapter:
   - `frontend/src/lib/auth/contracts.ts`
   - `frontend/src/lib/auth/supabaseClient.ts`
+  - `frontend/src/lib/auth/providerErrors.ts`
 - Auth state orchestration:
   - `frontend/src/features/auth/hooks/useAuthSession.ts`
   - `frontend/src/features/auth/AuthProvider.tsx`
@@ -96,6 +97,7 @@ Auth requirement:
 Reuse, do not reimplement:
 
 - Frontend auth/session abstraction (`AuthClient` + `useAuthSession` pattern).
+- Shared provider-error normalization (`frontend/src/lib/auth/providerErrors.ts`).
 - API transport seam (`createDashboardApiClient` / `DashboardApiClient`).
 - Existing protected backend endpoints and ownership enforcement.
 

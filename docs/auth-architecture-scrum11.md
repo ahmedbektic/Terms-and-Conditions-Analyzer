@@ -14,6 +14,7 @@ Auth modules:
 
 - `frontend/src/lib/auth/contracts.ts`
 - `frontend/src/lib/auth/supabaseClient.ts`
+- `frontend/src/lib/auth/providerErrors.ts` (shared provider constants + normalized auth errors)
 - `frontend/src/lib/api/createDashboardApiClient.ts`
 - `frontend/src/features/auth/hooks/useAuthSession.ts`
 - `frontend/src/features/auth/AuthProvider.tsx`
@@ -81,6 +82,7 @@ Frontend:
 
 - Extension UI can reuse `AuthClient` contract and `useAuthSession` orchestration, with a runtime-specific auth adapter if needed.
 - API transport already supports token injection via `DashboardApiClientConfig.getAccessToken`.
+- Provider errors can be normalized consistently via `frontend/src/lib/auth/providerErrors.ts`.
 
 Backend:
 

@@ -1,91 +1,177 @@
-// extension/lib/contract.ts
-// Shared messaging contract used by popup, background, and content script.
-// It defines all message types, payload shapes, and common error format.
-
 /**
- * Message types used across the extension.
- * These names describe a *request* from one module to another.
+ * Extension messaging protocol.
+ *
+ * Ownership rules:
+ * - Popup is a thin UI surface and talks only to background.
+ * - Content script is extraction-only and talks only to background.
+ * - Background is the orchestration authority for auth, extraction routing,
+ *   and backend analysis calls.
  */
-export enum ExtensionMessage {
-  /**
-   * Retrieve current authentication state.
-   * Payload: none. Response: AuthStatePayload.
-   */
-  GET_AUTH_STATE = "GET_AUTH_STATE",
 
-  /**
-   * Request the background to start the sign‑in flow.
-   * Payload: none. Response: { status: string }.
-   */
-  SIGN_IN = "SIGN_IN",
+export type ErrorArea = "auth" | "extraction" | "analysis" | "protocol";
 
-  /**
-   * Request the background to sign out.
-   * Payload: none. Response: { status: string }.
-   */
-  SIGN_OUT = "SIGN_OUT",
-
-  /**
-   * Command a content script to extract the visible page text.
-   * Payload: none.
-   */
-  EXTRACT_PAGE_TEXT = "EXTRACT_PAGE_TEXT",
-
-  /**
-   * Send the extracted page text to the background for analysis.
-   * Payload: AnalysisRequestPayload.
-   */
-  ANALYZE_TEXT = "ANALYZE_TEXT",
-}
-
-/**
- * Payload returned when asking for authentication state.
- */
-export interface AuthStatePayload {
-  /**
-   * JWT token if the user is signed in, otherwise null.
-   */
-  token: string | null;
-}
-
-/**
- * Request shape sent to the background for analysis.
- */
-export interface AnalysisRequestPayload {
-  /**
-   * Raw extracted page text.
-   */
-  text: string;
-}
-
-/**
- * Response shape returned by the backend after analysis.
- */
-export interface AnalysisResponsePayload {
-  /**
-   * Summarized text.
-   */
-  summary: string;
-  /**
-   * Backend report ID.
-   */
-  reportId: string;
-}
-
-/**
- * Generic error shape used for any message failure.
- */
 export interface ErrorPayload {
-  /**
-   * Human‑readable error message.
-   */
-  error: string;
+  area: ErrorArea;
+  message: string;
 }
 
+export interface ProtocolErrorResponse {
+  ok: false;
+  type: "error";
+  payload: ErrorPayload;
+}
+
+export function errorResponse(
+  area: ErrorArea,
+  message: string,
+): ProtocolErrorResponse {
+  return {
+    ok: false,
+    type: "error",
+    payload: { area, message },
+  };
+}
+
+export interface AuthStatePayload {
+  authenticated: boolean;
+  accessTokenPresent: boolean;
+  message: string;
+}
+
+export type AuthAction = "sign_in_google" | "sign_out";
+
+export interface AuthActionResultPayload {
+  action: AuthAction;
+  authState: AuthStatePayload;
+}
+
+export interface ExtractedTermsPayload {
+  terms_text: string;
+  source_url: string | null;
+  title: string | null;
+}
+
+export interface AnalyzeResultPayload {
+  report_id: string;
+  summary: string;
+}
+
+// Popup -> Background (auth state / auth actions / analysis trigger)
+export interface AuthStateRequestMessage {
+  type: "auth.state.request";
+}
+
+export interface AuthActionRequestMessage {
+  type: "auth.action.request";
+  payload: {
+    action: AuthAction;
+  };
+}
+
+export interface AnalysisRequestMessage {
+  type: "analysis.request";
+  payload: {
+    target: "active_tab";
+  };
+}
+
+export type PopupToBackgroundMessage =
+  | AuthStateRequestMessage
+  | AuthActionRequestMessage
+  | AnalysisRequestMessage;
+
+export interface AuthStateResultMessage {
+  ok: true;
+  type: "auth.state.result";
+  payload: AuthStatePayload;
+}
+
+export interface AuthActionResultMessage {
+  ok: true;
+  type: "auth.action.result";
+  payload: AuthActionResultPayload;
+}
+
+export interface AnalysisResultMessage {
+  ok: true;
+  type: "analysis.result";
+  payload: AnalyzeResultPayload;
+}
+
+export type PopupToBackgroundResponse =
+  | AuthStateResultMessage
+  | AuthActionResultMessage
+  | AnalysisResultMessage
+  | ProtocolErrorResponse;
+
+// Background -> Content (extraction only)
+export interface ExtractionRequestMessage {
+  type: "extraction.request";
+  payload: {
+    min_length: number;
+  };
+}
+
+export type BackgroundToContentMessage = ExtractionRequestMessage;
+
+export interface ExtractionResultMessage {
+  ok: true;
+  type: "extraction.result";
+  payload: ExtractedTermsPayload;
+}
+
+export type ContentToBackgroundResponse =
+  | ExtractionResultMessage
+  | ProtocolErrorResponse;
+
 /**
- * Generic message structure used in Chrome runtime messaging.
+ * Runtime guards centralize protocol validation so each extension surface
+ * (popup/background/content) does not drift on message-shape assumptions.
+ * These are intentionally strict and validate both `type` and required payload
+ * fields for accepted request messages.
  */
-export interface ExtensionMessagePayload<T = unknown> {
-  type: ExtensionMessage;
-  payload?: T;
+export function isPopupToBackgroundMessage(
+  value: unknown,
+): value is PopupToBackgroundMessage {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const message = value as {
+    type?: unknown;
+    payload?: { action?: unknown; target?: unknown };
+  };
+
+  if (message.type === "auth.state.request") {
+    return true;
+  }
+
+  if (message.type === "auth.action.request") {
+    return (
+      message.payload?.action === "sign_in_google" ||
+      message.payload?.action === "sign_out"
+    );
+  }
+
+  if (message.type === "analysis.request") {
+    return message.payload?.target === "active_tab";
+  }
+
+  return false;
+}
+
+export function isExtractionRequestMessage(
+  value: unknown,
+): value is ExtractionRequestMessage {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const message = value as { type?: unknown };
+  return message.type === "extraction.request";
+}
+
+export function isExtractionResultMessage(
+  value: ContentToBackgroundResponse,
+): value is ExtractionResultMessage {
+  return value.ok && value.type === "extraction.result";
 }
