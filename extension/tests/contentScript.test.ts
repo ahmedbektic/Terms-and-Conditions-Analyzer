@@ -67,6 +67,27 @@ describe("content script extraction behavior", () => {
     expect(termsText).toContain("body");
   });
 
+  it("prefers the longest policy candidate across matching selectors", async () => {
+    const shortTerms = "short ".repeat(20).trim();
+    const longPolicy = "long policy ".repeat(40).trim();
+    document.body.innerHTML = `
+      <section class="terms">${shortTerms}</section>
+      <article class="policy">${longPolicy}</article>
+    `;
+
+    const response = await dispatch({
+      type: "extraction.request",
+      payload: { min_length: 60 },
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      type: "extraction.result",
+    });
+    const termsText = (response as { payload: { terms_text: string } }).payload.terms_text;
+    expect(termsText).toBe(longPolicy);
+  });
+
   it("returns empty terms_text when no candidate meets minimum length", async () => {
     document.body.innerHTML = `<main>too short</main>`;
 

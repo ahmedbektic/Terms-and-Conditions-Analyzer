@@ -30,7 +30,9 @@
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
+    "https://127.0.0.1/*",
     "http://localhost/*",
+    "https://localhost/*",
     "https://*.onrender.com/*",
     "https://*.supabase.co/*"
   ],

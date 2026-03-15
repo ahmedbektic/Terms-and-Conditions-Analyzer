@@ -45,6 +45,9 @@ describe("background service worker orchestration", () => {
     vi.clearAllMocks();
     vi.resetModules();
     listener = null;
+    mocks.authClientMock.getSession.mockResolvedValue(null);
+    mocks.authClientMock.signInWithGoogle.mockResolvedValue(undefined);
+    mocks.authClientMock.signOut.mockResolvedValue(undefined);
 
     tabsQueryMock = vi.fn().mockResolvedValue([{ id: 11 }]);
     tabsSendMessageMock = vi.fn();
@@ -72,6 +75,10 @@ describe("background service worker orchestration", () => {
     await import("../background.service-worker");
   });
 
+  it("hydrates auth session state once on startup", async () => {
+    expect(mocks.authClientMock.getSession).toHaveBeenCalledTimes(1);
+  });
+
   it("returns auth state from the runtime auth adapter", async () => {
     mocks.authClientMock.getSession.mockResolvedValue(null);
 
@@ -86,6 +93,35 @@ describe("background service worker orchestration", () => {
         authenticated: false,
         accessTokenPresent: false,
         message: "Not signed in.",
+      },
+    });
+  });
+
+  it("runs sign-in action through auth adapter and returns authenticated auth state", async () => {
+    mocks.authClientMock.getSession
+      .mockResolvedValueOnce({
+        userId: "signed-in-user",
+        accessToken: "signed-in-token",
+        email: "signed-in@example.com",
+        expiresAt: null,
+      });
+
+    const response = await dispatch({
+      type: "auth.action.request",
+      payload: { action: "sign_in_google" },
+    });
+
+    expect(mocks.authClientMock.signInWithGoogle).toHaveBeenCalledTimes(1);
+    expect(response).toEqual({
+      ok: true,
+      type: "auth.action.result",
+      payload: {
+        action: "sign_in_google",
+        authState: {
+          authenticated: true,
+          accessTokenPresent: true,
+          message: "Signed in.",
+        },
       },
     });
   });
@@ -168,6 +204,89 @@ describe("background service worker orchestration", () => {
       payload: {
         report_id: "report-1",
         summary: "risk summary",
+      },
+    });
+  });
+
+  it("supports runtime SCRUM-9 path without manually seeded session", async () => {
+    tabsSendMessageMock.mockResolvedValue({
+      ok: true,
+      type: "extraction.result",
+      payload: {
+        terms_text: "a".repeat(260),
+        source_url: "https://example.com/terms",
+        title: "Example terms",
+      },
+    });
+    mocks.analyzeExtractedTermsMock.mockResolvedValue({
+      id: "report-2",
+      summary: "analyzed after runtime sign-in",
+    });
+
+    const initialStateResponse = await dispatch({
+      type: "auth.state.request",
+    });
+
+    expect(initialStateResponse).toEqual({
+      ok: true,
+      type: "auth.state.result",
+      payload: {
+        authenticated: false,
+        accessTokenPresent: false,
+        message: "Not signed in.",
+      },
+    });
+
+    mocks.authClientMock.getSession.mockResolvedValueOnce({
+      userId: "runtime-user",
+      accessToken: "runtime-token",
+      email: "runtime@example.com",
+      expiresAt: null,
+    });
+
+    const signInResponse = await dispatch({
+      type: "auth.action.request",
+      payload: { action: "sign_in_google" },
+    });
+
+    expect(signInResponse).toEqual({
+      ok: true,
+      type: "auth.action.result",
+      payload: {
+        action: "sign_in_google",
+        authState: {
+          authenticated: true,
+          accessTokenPresent: true,
+          message: "Signed in.",
+        },
+      },
+    });
+
+    const analyzeResponse = await dispatch({
+      type: "analysis.request",
+      payload: { target: "active_tab" },
+    });
+
+    expect(mocks.analyzeExtractedTermsMock).toHaveBeenCalledWith({
+      baseUrl: "http://127.0.0.1:8000/api/v1",
+      session: {
+        userId: "runtime-user",
+        accessToken: "runtime-token",
+        email: "runtime@example.com",
+        expiresAt: null,
+      },
+      extracted: {
+        terms_text: "a".repeat(260),
+        source_url: "https://example.com/terms",
+        title: "Example terms",
+      },
+    });
+    expect(analyzeResponse).toEqual({
+      ok: true,
+      type: "analysis.result",
+      payload: {
+        report_id: "report-2",
+        summary: "analyzed after runtime sign-in",
       },
     });
   });

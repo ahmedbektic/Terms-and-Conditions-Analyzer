@@ -2,6 +2,7 @@ import type {
   BackgroundToContentMessage,
   ContentToBackgroundResponse,
 } from "../contract";
+import { normalizeApiBaseUrl } from "../config";
 
 // Chrome runtime adapter used by the background orchestrator.
 // Keeping this separate avoids scattering direct `chrome.*` calls in flow code.
@@ -18,6 +19,7 @@ export interface ChromeBackgroundRuntimeGateway {
 export interface ChromeBackgroundRuntimeGatewayOptions {
   defaultApiBaseUrl: string;
   apiBaseUrlStorageKey: string;
+  extractionMinLengthStorageKey?: string;
 }
 
 /**
@@ -46,10 +48,11 @@ export function createChromeBackgroundRuntimeGateway(
     tabId: number,
     minLength: number,
   ): Promise<ContentToBackgroundResponse | undefined> {
+    const resolvedMinLength = await resolveExtractionMinLengthOverride(minLength);
     const extractionRequest: BackgroundToContentMessage = {
       type: "extraction.request",
       payload: {
-        min_length: minLength,
+        min_length: resolvedMinLength,
       },
     };
 
@@ -63,11 +66,44 @@ export function createChromeBackgroundRuntimeGateway(
     // Local override enables extension-only environment switching without
     // forking backend contracts or request payloads.
     const stored = await chrome.storage.local.get(options.apiBaseUrlStorageKey);
-    const value = stored[options.apiBaseUrlStorageKey];
-    if (typeof value !== "string") {
+    const storedValue = stored[options.apiBaseUrlStorageKey];
+    if (typeof storedValue !== "string") {
       return options.defaultApiBaseUrl;
     }
-    const baseUrl = value.trim();
-    return baseUrl || options.defaultApiBaseUrl;
+    return normalizeApiBaseUrl(storedValue) ?? options.defaultApiBaseUrl;
   }
+
+  async function resolveExtractionMinLengthOverride(defaultValue: number): Promise<number> {
+    const storageKey = options.extractionMinLengthStorageKey;
+    if (!storageKey) {
+      return defaultValue;
+    }
+
+    const stored = await chrome.storage.local.get(storageKey);
+    const storedValue = stored[storageKey];
+    const normalized = parsePositiveInteger(storedValue);
+    if (normalized === null) {
+      return defaultValue;
+    }
+
+    // Keep a practical ceiling so accidental huge values do not make extraction
+    // appear permanently broken on normal policy pages.
+    return Math.min(normalized, 10000);
+  }
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  const numericValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+
+  const integer = Math.floor(numericValue);
+  return integer > 0 ? integer : null;
 }

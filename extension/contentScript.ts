@@ -1,4 +1,5 @@
 import {
+  type ExtractionRequestMessage,
   type ContentToBackgroundResponse,
   errorResponse,
   isExtractionRequestMessage,
@@ -18,6 +19,12 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     return false;
   }
 
+  sendResponse(buildExtractionResponse(request));
+
+  return true;
+});
+
+function buildExtractionResponse(request: ExtractionRequestMessage): ContentToBackgroundResponse {
   try {
     // Caller can tune threshold per request; we keep a safe default fallback
     // when the field is absent or invalid.
@@ -28,22 +35,16 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       title: document.title,
       minLength,
     });
-    const response: ContentToBackgroundResponse = {
+
+    return {
       ok: true,
       type: "extraction.result",
       payload: extracted,
     };
-    sendResponse(response);
   } catch (error) {
-    sendResponse(
-      errorResponse(
-        "extraction",
-        error instanceof Error
-          ? error.message
-          : "Terms extraction failed in content script.",
-      ),
+    return errorResponse(
+      "extraction",
+      error instanceof Error ? error.message : "Terms extraction failed in content script.",
     );
   }
-
-  return true;
-});
+}

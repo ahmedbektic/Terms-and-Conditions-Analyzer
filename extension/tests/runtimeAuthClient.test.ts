@@ -14,18 +14,33 @@ describe("extension runtime auth client", () => {
     vi.restoreAllMocks();
   });
 
-  it("signs in with Google OAuth and persists auth_session", async () => {
-    const { localStorageState } = installChromeMocks({
+  it("starts signed-out when auth_session is not present", async () => {
+    installChromeMocks({
       auth_supabase_url: SUPABASE_URL,
       auth_supabase_anon_key: SUPABASE_ANON_KEY,
     });
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const client = new ExtensionRuntimeAuthClient();
+    await expect(client.getSession()).resolves.toBeNull();
+  });
+
+  it("signs in with Google OAuth and persists auth_session", async () => {
+    const { localStorageState, launchWebAuthFlowMock } = installChromeMocks({
+      auth_supabase_url: SUPABASE_URL,
+      auth_supabase_anon_key: SUPABASE_ANON_KEY,
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/auth/v1/user")) {
+      if (url.includes("/auth/v1/token?grant_type=pkce")) {
         return jsonResponse({
-          id: "oauth-user-1",
-          email: "oauth-user@example.com",
+          access_token: "oauth-access-token",
+          refresh_token: "oauth-refresh-token",
+          expires_in: 3600,
+          user: {
+            id: "oauth-user-1",
+            email: "oauth-user@example.com",
+          },
         });
       }
       throw new Error(`Unexpected request: ${url}`);
@@ -41,6 +56,58 @@ describe("extension runtime auth client", () => {
       email: "oauth-user@example.com",
     });
     expect(localStorageState.auth_refresh_token).toBe("oauth-refresh-token");
+    const launchOptions = launchWebAuthFlowMock.mock.calls[0]?.[0] as
+      | chrome.identity.WebAuthFlowDetails
+      | undefined;
+    expect(launchOptions?.url).toContain(`${SUPABASE_URL}/auth/v1/authorize`);
+    expect(launchOptions?.url).toContain("code_challenge=");
+    expect(launchOptions?.url).toContain("code_challenge_method=s256");
+    expect(launchOptions?.url).not.toContain("response_type=token");
+
+    const tokenCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("/auth/v1/token?grant_type=pkce"),
+    );
+    const tokenRequestInit = tokenCall?.[1] as RequestInit | undefined;
+    const body = JSON.parse(String(tokenRequestInit?.body ?? "{}")) as {
+      auth_code?: unknown;
+      code_verifier?: unknown;
+    };
+    expect(body.auth_code).toBe("oauth-auth-code");
+    expect(typeof body.code_verifier).toBe("string");
+    expect((body.code_verifier as string).length).toBeGreaterThan(10);
+  });
+
+  it("normalizes auth/v1-style Supabase URL before building OAuth authorize URL", async () => {
+    const { launchWebAuthFlowMock } = installChromeMocks({
+      auth_supabase_url: `${SUPABASE_URL}/auth/v1`,
+      auth_supabase_anon_key: SUPABASE_ANON_KEY,
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/auth/v1/token?grant_type=pkce")) {
+        return jsonResponse({
+          access_token: "oauth-access-token-2",
+          refresh_token: "oauth-refresh-token-2",
+          expires_in: 3600,
+          user: {
+            id: "oauth-user-2",
+            email: "oauth-user-2@example.com",
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ExtensionRuntimeAuthClient();
+    await client.signInWithGoogle();
+
+    const launchOptions = launchWebAuthFlowMock.mock.calls[0]?.[0] as
+      | chrome.identity.WebAuthFlowDetails
+      | undefined;
+    expect(launchOptions?.url).toContain(`${SUPABASE_URL}/auth/v1/authorize`);
+    expect(launchOptions?.url).not.toContain("/auth/v1/auth/v1/");
   });
 
   it("signs in with password and persists auth_session", async () => {
@@ -49,7 +116,7 @@ describe("extension runtime auth client", () => {
       auth_supabase_anon_key: SUPABASE_ANON_KEY,
     });
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/auth/v1/token?grant_type=password")) {
         return jsonResponse({
@@ -93,7 +160,7 @@ describe("extension runtime auth client", () => {
       auth_refresh_token: "refresh-token",
     });
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/auth/v1/logout")) {
         return jsonResponse({ message: "logout failed" }, 500);
@@ -117,7 +184,7 @@ describe("extension runtime auth client", () => {
       },
       {
         oauthCallbackUrl:
-          "https://example.chromiumapp.org/supabase-auth#error=server_error&error_description=Unsupported%20provider%3A%20provider%20is%20not%20enabled",
+          "https://example.chromiumapp.org/supabase-auth?error=server_error&error_description=Unsupported%20provider%3A%20provider%20is%20not%20enabled",
       },
     );
 
@@ -128,6 +195,24 @@ describe("extension runtime auth client", () => {
     ).message;
 
     await expect(client.signInWithGoogle()).rejects.toThrow(expectedMessage);
+  });
+
+  it("surfaces actionable message when Chrome cannot load Google authorization page", async () => {
+    installChromeMocks(
+      {
+        auth_supabase_url: SUPABASE_URL,
+        auth_supabase_anon_key: SUPABASE_ANON_KEY,
+      },
+      {
+        launchRuntimeErrorMessage: "Authorization page could not be loaded.",
+      },
+    );
+
+    const client = new ExtensionRuntimeAuthClient();
+
+    await expect(client.signInWithGoogle()).rejects.toThrow(
+      "Google sign-in failed. Authorization page could not be loaded. Verify auth_supabase_url/EXTENSION_SUPABASE_URL is your project root URL (https://<project-ref>.supabase.co, not /auth/v1), then retry.",
+    );
   });
 });
 
@@ -198,7 +283,7 @@ function installChromeMocks(
       runtime.lastError = undefined;
       callback?.(
         options.oauthCallbackUrl ??
-          "https://example.chromiumapp.org/supabase-auth#access_token=oauth-access-token&refresh_token=oauth-refresh-token&expires_in=3600",
+          "https://example.chromiumapp.org/supabase-auth?code=oauth-auth-code",
       );
     },
   );

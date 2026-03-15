@@ -121,12 +121,15 @@ Quick path (PowerShell, from repo root):
    - Setup matrix: `docs/google-auth-setup-matrix.md`.
 5. Open extension popup and use `Log in` (Google OAuth).
 6. Open a policy page, click extension icon, then click `Analyze page`.
+7. Do not manually seed `chrome.storage.local.auth_session`; runtime auth writes session state after successful popup sign-in.
 
 Notes:
 
 - If you hit extension-origin CORS issues, append
   `chrome-extension://<extension-id>` to `CORS_ALLOWED_ORIGINS` in `backend/.env`
   and restart backend.
+- If extension analysis fails with network/permission errors, also verify the
+  backend host is present in extension `manifest.json` `host_permissions`.
 
 ## Local Google Auth Env Checklist (Web + Extension)
 
@@ -160,18 +163,32 @@ VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
 
 ### 3) Extension auth config
 
-The extension build reads Supabase auth config from one of these sources:
+The extension build reads auth/API config from these sources:
 
-1. `EXTENSION_SUPABASE_URL` / `EXTENSION_SUPABASE_ANON_KEY` process env vars
-2. fallback to frontend `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
+1. process env (`EXTENSION_*`, then `VITE_*`)
+2. extension env files (`extension/.env`, `extension/.env.local`)
+3. frontend env files (`frontend/.env`, `frontend/.env.local`) as fallback
+4. API fallback default only: `http://127.0.0.1:8000/api/v1`
 
 Optional explicit override before build:
 
 ```powershell
+$env:EXTENSION_API_BASE_URL="http://127.0.0.1:8000/api/v1"
 $env:EXTENSION_SUPABASE_URL="https://<your-project-ref>.supabase.co"
 $env:EXTENSION_SUPABASE_ANON_KEY="<your-supabase-anon-key>"
 npm run --prefix extension build
 ```
+
+Optional runtime override for debugging (service-worker console):
+
+```javascript
+await chrome.storage.local.set({
+  api_base_url: "http://127.0.0.1:8000/api/v1",
+  extraction_min_length: 160,
+});
+```
+
+`extraction_min_length` is intentionally dev-oriented; keep it a positive integer.
 
 ### 4) Required Supabase redirect allow-list entries
 

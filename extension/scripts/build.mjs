@@ -10,15 +10,21 @@ const repoRoot = path.resolve(extensionRoot, "..");
 const distDir = path.join(extensionRoot, "dist");
 const distPopupDir = path.join(distDir, "popup");
 
+const extensionEnv = await loadMergedEnvFiles([
+  path.join(extensionRoot, ".env"),
+  path.join(extensionRoot, ".env.local"),
+]);
+
 const frontendEnv = await loadMergedEnvFiles([
   path.join(repoRoot, "frontend", ".env"),
   path.join(repoRoot, "frontend", ".env.local"),
 ]);
+const extensionThenFrontendEnv = { ...frontendEnv, ...extensionEnv };
 
 const extensionSupabaseUrl = resolveEnvValue({
   processPrimaryKey: "EXTENSION_SUPABASE_URL",
   processFallbackKey: "VITE_SUPABASE_URL",
-  fileEnv: frontendEnv,
+  fileEnv: extensionThenFrontendEnv,
   filePrimaryKey: "EXTENSION_SUPABASE_URL",
   fileFallbackKey: "VITE_SUPABASE_URL",
 });
@@ -26,10 +32,19 @@ const extensionSupabaseUrl = resolveEnvValue({
 const extensionSupabaseAnonKey = resolveEnvValue({
   processPrimaryKey: "EXTENSION_SUPABASE_ANON_KEY",
   processFallbackKey: "VITE_SUPABASE_ANON_KEY",
-  fileEnv: frontendEnv,
+  fileEnv: extensionThenFrontendEnv,
   filePrimaryKey: "EXTENSION_SUPABASE_ANON_KEY",
   fileFallbackKey: "VITE_SUPABASE_ANON_KEY",
 });
+
+// API base URL precedence intentionally mirrors extension docs so local runs
+// stay predictable across process env and file-based overrides.
+const extensionApiBaseUrl =
+  readString(process.env.EXTENSION_API_BASE_URL) ||
+  readString(process.env.VITE_API_BASE_URL) ||
+  readString(extensionEnv.EXTENSION_API_BASE_URL) ||
+  readString(extensionEnv.VITE_API_BASE_URL) ||
+  readString(frontendEnv.VITE_API_BASE_URL);
 
 const sharedBuildOptions = {
   bundle: true,
@@ -42,6 +57,7 @@ const sharedBuildOptions = {
   define: {
     "globalThis.__EXTENSION_SUPABASE_URL__": JSON.stringify(extensionSupabaseUrl),
     "globalThis.__EXTENSION_SUPABASE_ANON_KEY__": JSON.stringify(extensionSupabaseAnonKey),
+    "globalThis.__EXTENSION_API_BASE_URL__": JSON.stringify(extensionApiBaseUrl),
   },
 };
 
@@ -76,6 +92,11 @@ console.log(`Load unpacked extension from: ${extensionRoot}`);
 if (!extensionSupabaseUrl || !extensionSupabaseAnonKey) {
   console.log(
     "Warning: Supabase auth config is empty. Set EXTENSION_SUPABASE_URL/EXTENSION_SUPABASE_ANON_KEY or frontend VITE_SUPABASE_* before build.",
+  );
+}
+if (!extensionApiBaseUrl) {
+  console.log(
+    "Info: EXTENSION_API_BASE_URL is not set. Runtime defaults to http://127.0.0.1:8000/api/v1 unless api_base_url override is stored in chrome.storage.local.",
   );
 }
 

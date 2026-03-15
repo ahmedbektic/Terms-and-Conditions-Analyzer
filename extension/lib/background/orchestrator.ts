@@ -1,10 +1,10 @@
-import type { AuthClient } from "../../../frontend/src/lib/auth/contracts";
 import type { AnalyzeExtractedTerms } from "../apiClient";
+import type { BackgroundAuthSessionStore } from "./authSessionStore";
+import type { AuthenticatedSession } from "../../../frontend/src/lib/auth/contracts";
 import {
   type AnalyzeResultPayload,
   type AuthAction,
   type AuthActionResultPayload,
-  type AuthStatePayload,
   type ContentToBackgroundResponse,
   errorResponse,
   type ExtractedTermsPayload,
@@ -25,7 +25,7 @@ import {
  * Direct Chrome API calls are intentionally injected from a runtime gateway.
  */
 export interface BackgroundOrchestratorDependencies {
-  authClient: AuthClient;
+  authSessionStore: BackgroundAuthSessionStore;
   extractionMinLength: number;
   getActiveTab: () => Promise<chrome.tabs.Tab>;
   getApiBaseUrl: () => Promise<string>;
@@ -57,13 +57,13 @@ export function createBackgroundRequestDispatcher(
           return {
             ok: true,
             type: "auth.state.result",
-            payload: await buildAuthStatePayload(deps.authClient),
+            payload: await deps.authSessionStore.getAuthStatePayload(),
           };
         case "auth.action.request":
           return {
             ok: true,
             type: "auth.action.result",
-            payload: await runAuthAction(deps.authClient, request.payload.action),
+            payload: await runAuthAction(deps.authSessionStore, request.payload.action),
           };
         case "analysis.request":
           return {
@@ -81,34 +81,12 @@ export function createBackgroundRequestDispatcher(
 }
 
 async function runAuthAction(
-  authClient: AuthClient,
+  authSessionStore: BackgroundAuthSessionStore,
   action: AuthAction,
 ): Promise<AuthActionResultPayload> {
-  switch (action) {
-    case "sign_in_google":
-      // Runtime adapter owns provider-specific auth mechanics.
-      await authClient.signInWithGoogle();
-      break;
-    case "sign_out":
-      await authClient.signOut();
-      break;
-    default:
-      throw new Error(`Unsupported auth action: ${String(action)}`);
-  }
-
   return {
     action,
-    authState: await buildAuthStatePayload(authClient),
-  };
-}
-
-async function buildAuthStatePayload(authClient: AuthClient): Promise<AuthStatePayload> {
-  const session = await authClient.getSession();
-  const authenticated = Boolean(session?.accessToken);
-  return {
-    authenticated,
-    accessTokenPresent: authenticated,
-    message: authenticated ? "Signed in." : "Not signed in.",
+    authState: await authSessionStore.runAuthAction(action),
   };
 }
 
@@ -130,10 +108,7 @@ async function analyzeActiveTab(
     throw new Error("No extractable terms text was found on the active page.");
   }
 
-  const session = await deps.authClient.getSession();
-  if (!session?.accessToken) {
-    throw new Error("You are not signed in yet. Use extension login before running analysis.");
-  }
+  const session = await requireAuthenticatedSession(deps.authSessionStore);
 
   const report = await deps.analyzeExtractedTerms({
     baseUrl: await deps.getApiBaseUrl(),
@@ -181,4 +156,14 @@ function inferErrorArea(
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown extension runtime error.";
+}
+
+async function requireAuthenticatedSession(
+  authSessionStore: BackgroundAuthSessionStore,
+): Promise<AuthenticatedSession> {
+  const session = await authSessionStore.getSession();
+  if (!session?.accessToken) {
+    throw new Error("You are not signed in yet. Use extension login before running analysis.");
+  }
+  return session;
 }

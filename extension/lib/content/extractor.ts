@@ -16,6 +16,11 @@ const POLICY_SELECTORS = [
  * Pure extraction helper used by the content script message handler.
  * Keeping this logic separate makes future extraction improvements easier
  * without touching runtime messaging code.
+ *
+ * Extension points for future stories:
+ * - per-domain selector packs
+ * - de-duplication and boilerplate stripping
+ * - confidence scoring emitted alongside extracted text
  */
 export function extractTermsFromPage(options: {
   doc: Document;
@@ -53,17 +58,26 @@ export function resolveExtractionMinLength(requestedMinLength: number | undefine
 
 function extractFromPolicySelectors(doc: Document, minLength: number): string {
   // Selector order is intentional: policy-specific matches before generic containers.
+  // We select the longest candidate across matches to avoid relying on first-hit DOM order.
+  let bestCandidate = "";
+
   for (const selector of POLICY_SELECTORS) {
-    const element = doc.querySelector(selector);
-    if (!element) {
-      continue;
-    }
-    const candidate = normalizeWhitespace(element.textContent ?? "");
-    if (candidate.length >= minLength) {
-      return candidate;
+    const elements = doc.querySelectorAll(selector);
+    // Use index-based iteration so this works even when TS libs do not include
+    // DOM iterable typings for NodeList.
+    for (let index = 0; index < elements.length; index += 1) {
+      const element = elements.item(index);
+      if (!element) {
+        continue;
+      }
+      const candidate = normalizeWhitespace(element.textContent ?? "");
+      if (candidate.length > bestCandidate.length) {
+        bestCandidate = candidate;
+      }
     }
   }
-  return "";
+
+  return bestCandidate.length >= minLength ? bestCandidate : "";
 }
 
 function normalizeWhitespace(value: string): string {

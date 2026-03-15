@@ -13,6 +13,14 @@
       #status {
         margin-bottom: 8px;
       }
+      #status.error {
+        color: #b42318;
+      }
+      #hint {
+        margin: 4px 0 8px;
+        color: #555;
+        font-size: 12px;
+      }
       button {
         margin-right: 4px;
       }
@@ -30,7 +38,9 @@
   </head>
   <body>
     <div id="status">Loading...</div>
+    <div id="hint" class="hidden"></div>
     <button id="loginBtn" class="hidden">Log in</button>
+    <button id="logoutBtn" class="hidden">Log out</button>
     <button id="analyzeBtn" class="hidden">Analyze page</button>
     <pre id="output"></pre>
     <script src="./index.js"></script>

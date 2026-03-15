@@ -11,6 +11,7 @@ describe("popup flow", () => {
     document.body.innerHTML = `
       <div id="status">Loading...</div>
       <button id="loginBtn" class="hidden">Log in</button>
+      <button id="logoutBtn" class="hidden">Log out</button>
       <button id="analyzeBtn" class="hidden">Analyze page</button>
       <pre id="output"></pre>
     `;
@@ -57,6 +58,152 @@ describe("popup flow", () => {
 
     expect(text("status")).toBe("Not signed in.");
     expect(hasHiddenClass("loginBtn")).toBe(false);
+    expect(hasHiddenClass("logoutBtn")).toBe(true);
+    expect(hasHiddenClass("analyzeBtn")).toBe(true);
+  });
+
+  it("runs login action through background and shows analysis-ready controls", async () => {
+    sendMessageHandler = (request) => {
+      if (isAuthStateRequest(request)) {
+        return {
+          ok: true,
+          type: "auth.state.result",
+          payload: {
+            authenticated: false,
+            accessTokenPresent: false,
+            message: "Not signed in.",
+          },
+        };
+      }
+      if (isAuthActionRequest(request, "sign_in_google")) {
+        return {
+          ok: true,
+          type: "auth.action.result",
+          payload: {
+            action: "sign_in_google",
+            authState: {
+              authenticated: true,
+              accessTokenPresent: true,
+              message: "Signed in.",
+            },
+          },
+        };
+      }
+      return unexpected(request);
+    };
+
+    await import("../popup/index");
+    await flushAsync();
+
+    click("loginBtn");
+    await flushAsync();
+
+    expect(text("status")).toBe("Signed in.");
+    expect(hasHiddenClass("loginBtn")).toBe(true);
+    expect(hasHiddenClass("logoutBtn")).toBe(false);
+    expect(hasHiddenClass("analyzeBtn")).toBe(false);
+  });
+
+  it("supports runtime SCRUM-9 popup path from signed-out to analysis result", async () => {
+    let authStateRequestCount = 0;
+
+    sendMessageHandler = (request) => {
+      if (isAuthStateRequest(request)) {
+        authStateRequestCount += 1;
+        return {
+          ok: true,
+          type: "auth.state.result",
+          payload: {
+            authenticated: false,
+            accessTokenPresent: false,
+            message: "Not signed in.",
+          },
+        };
+      }
+
+      if (isAuthActionRequest(request, "sign_in_google")) {
+        return {
+          ok: true,
+          type: "auth.action.result",
+          payload: {
+            action: "sign_in_google",
+            authState: {
+              authenticated: true,
+              accessTokenPresent: true,
+              message: "Signed in.",
+            },
+          },
+        };
+      }
+
+      if (isAnalysisRequest(request)) {
+        return {
+          ok: true,
+          type: "analysis.result",
+          payload: {
+            report_id: "report-runtime",
+            summary: "Runtime sign-in flow summary.",
+          },
+        };
+      }
+
+      return unexpected(request);
+    };
+
+    await import("../popup/index");
+    await flushAsync();
+
+    expect(authStateRequestCount).toBe(1);
+    expect(text("status")).toBe("Not signed in.");
+
+    click("loginBtn");
+    await flushAsync();
+
+    expect(text("status")).toBe("Signed in.");
+    expect(hasHiddenClass("analyzeBtn")).toBe(false);
+
+    click("analyzeBtn");
+    await flushAsync();
+
+    expect(text("status")).toBe("Analysis complete.");
+    expect(text("output")).toBe("Runtime sign-in flow summary.");
+  });
+
+  it("shows auth-scoped error and keeps unauthenticated controls when login fails", async () => {
+    sendMessageHandler = (request) => {
+      if (isAuthStateRequest(request)) {
+        return {
+          ok: true,
+          type: "auth.state.result",
+          payload: {
+            authenticated: false,
+            accessTokenPresent: false,
+            message: "Not signed in.",
+          },
+        };
+      }
+      if (isAuthActionRequest(request, "sign_in_google")) {
+        return {
+          ok: false,
+          type: "error",
+          payload: {
+            area: "auth",
+            message: "Google sign-in is not enabled for this environment.",
+          },
+        };
+      }
+      return unexpected(request);
+    };
+
+    await import("../popup/index");
+    await flushAsync();
+
+    click("loginBtn");
+    await flushAsync();
+
+    expect(text("status")).toBe("[auth] Google sign-in is not enabled for this environment.");
+    expect(hasHiddenClass("loginBtn")).toBe(false);
+    expect(hasHiddenClass("logoutBtn")).toBe(true);
     expect(hasHiddenClass("analyzeBtn")).toBe(true);
   });
 
@@ -94,6 +241,49 @@ describe("popup flow", () => {
 
     expect(text("status")).toBe("Analysis complete.");
     expect(text("output")).toBe("Risk summary.");
+    expect(hasHiddenClass("logoutBtn")).toBe(false);
+  });
+
+  it("runs logout action through background and returns to signed-out controls", async () => {
+    sendMessageHandler = (request) => {
+      if (isAuthStateRequest(request)) {
+        return {
+          ok: true,
+          type: "auth.state.result",
+          payload: {
+            authenticated: true,
+            accessTokenPresent: true,
+            message: "Signed in.",
+          },
+        };
+      }
+      if (isAuthActionRequest(request, "sign_out")) {
+        return {
+          ok: true,
+          type: "auth.action.result",
+          payload: {
+            action: "sign_out",
+            authState: {
+              authenticated: false,
+              accessTokenPresent: false,
+              message: "Not signed in.",
+            },
+          },
+        };
+      }
+      return unexpected(request);
+    };
+
+    await import("../popup/index");
+    await flushAsync();
+
+    click("logoutBtn");
+    await flushAsync();
+
+    expect(text("status")).toBe("Not signed in.");
+    expect(hasHiddenClass("loginBtn")).toBe(false);
+    expect(hasHiddenClass("logoutBtn")).toBe(true);
+    expect(hasHiddenClass("analyzeBtn")).toBe(true);
   });
 
   it("shows structured error message returned from background", async () => {
@@ -162,6 +352,21 @@ function isAnalysisRequest(request: unknown): request is {
   }
   const typed = request as { type?: unknown; payload?: { target?: unknown } };
   return typed.type === "analysis.request" && typed.payload?.target === "active_tab";
+}
+
+function isAuthActionRequest(
+  request: unknown,
+  action: "sign_in_google" | "sign_out",
+): request is {
+  type: "auth.action.request";
+  payload: { action: "sign_in_google" | "sign_out" };
+} {
+  if (typeof request !== "object" || request === null) {
+    return false;
+  }
+
+  const typed = request as { type?: unknown; payload?: { action?: unknown } };
+  return typed.type === "auth.action.request" && typed.payload?.action === action;
 }
 
 function click(id: string): void {

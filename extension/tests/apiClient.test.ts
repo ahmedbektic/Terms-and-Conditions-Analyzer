@@ -88,4 +88,32 @@ describe("extension api client adapter", () => {
 
     expect(mocks.submitAndAnalyzeMock).not.toHaveBeenCalled();
   });
+
+  it("maps null extraction metadata to backend-compatible optional fields", async () => {
+    mocks.submitAndAnalyzeMock.mockResolvedValue({
+      id: "report-2",
+      summary: "summary",
+    });
+
+    await analyzeExtractedTerms({
+      baseUrl: "http://127.0.0.1:8000/api/v1",
+      session: {
+        userId: "user-2",
+        accessToken: "token-2",
+        email: null,
+        expiresAt: null,
+      },
+      extracted: {
+        terms_text: "terms body",
+        source_url: null,
+        title: null,
+      },
+    });
+
+    expect(mocks.submitAndAnalyzeMock).toHaveBeenCalledWith({
+      terms_text: "terms body",
+      source_url: undefined,
+      title: undefined,
+    });
+  });
 });
