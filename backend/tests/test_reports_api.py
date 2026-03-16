@@ -86,8 +86,7 @@ def _build_analysis_service_for_test(
             report_repository=report_repository,
         ),
         submission_preparation_service=SubmissionPreparationService(
-            content_ingestion_service=content_ingestion_service
-            or ContentIngestionService()
+            content_ingestion_service=content_ingestion_service or ContentIngestionService()
         ),
     )
 

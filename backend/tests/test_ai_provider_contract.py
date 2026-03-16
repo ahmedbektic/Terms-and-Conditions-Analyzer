@@ -20,9 +20,7 @@ def test_deterministic_provider_returns_identity_and_compat_model_name() -> None
         analysis_input=AnalysisInput(
             source_type="text",
             source_value="manual_text_submission",
-            normalized_text=(
-                "These terms include arbitration and automatic renewal language."
-            ),
+            normalized_text=("These terms include arbitration and automatic renewal language."),
         )
     )
 
@@ -37,9 +35,7 @@ def test_deterministic_provider_propagates_ingestion_warnings() -> None:
         analysis_input=AnalysisInput(
             source_type="url",
             source_value="https://example.com/terms",
-            normalized_text=(
-                "These terms include arbitration and class action waiver language."
-            ),
+            normalized_text=("These terms include arbitration and class action waiver language."),
             metadata=AnalysisInputMetadata(
                 source_kind="url",
                 extraction_warnings=("URL fetch failed; fallback used.",),
@@ -155,9 +151,7 @@ def test_fallback_provider_uses_deterministic_when_primary_fails() -> None:
     )
 
     assert result.provider_identity.provider_name == "deterministic_keyword_provider"
-    assert any(
-        "fallback" in warning.lower() for warning in result.execution_metadata.warnings
-    )
+    assert any("fallback" in warning.lower() for warning in result.execution_metadata.warnings)
 
 
 def test_provider_builder_fallback_handles_runtime_ai_invocation_failure(
@@ -186,9 +180,7 @@ def test_provider_builder_fallback_handles_runtime_ai_invocation_failure(
     )
 
     assert result.provider_identity.provider_name == "deterministic_keyword_provider"
-    assert any(
-        "fallback" in warning.lower() for warning in result.execution_metadata.warnings
-    )
+    assert any("fallback" in warning.lower() for warning in result.execution_metadata.warnings)
 
 
 def test_provider_builder_without_fallback_raises_on_runtime_ai_failure(

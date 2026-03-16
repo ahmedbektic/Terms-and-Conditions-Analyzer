@@ -68,9 +68,7 @@ class SubmissionPreparationService:
         *,
         content_ingestion_service: ContentIngestionService | None = None,
     ) -> None:
-        self._content_ingestion_service = (
-            content_ingestion_service or ContentIngestionService()
-        )
+        self._content_ingestion_service = content_ingestion_service or ContentIngestionService()
 
     def prepare_terms_text_for_storage(self, *, terms_text: str) -> str:
         """Normalize and validate direct agreement text submissions."""
@@ -80,9 +78,7 @@ class SubmissionPreparationService:
             raise InvalidSubmissionError("Agreement text must be at least 20 characters.")
         return normalized_terms_text
 
-    def prepare_submission(
-        self, *, submission: AnalysisSubmission
-    ) -> ExtractionIngestionResult:
+    def prepare_submission(self, *, submission: AnalysisSubmission) -> ExtractionIngestionResult:
         """Prepare legacy one-shot API payloads into extraction boundary DTOs."""
 
         normalized_title = self._normalize_optional_value(submission.title)

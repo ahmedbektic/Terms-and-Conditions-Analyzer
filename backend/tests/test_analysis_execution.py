@@ -64,9 +64,7 @@ def test_sync_execution_strategy_creates_completed_report() -> None:
             ingestion_result=ExtractionIngestionResult(
                 source_kind=ExtractionSourceKind.URL,
                 original_source_value="https://example.com/terms",
-                normalized_text=(
-                    "These terms include arbitration and automatic renewal clauses."
-                ),
+                normalized_text=("These terms include arbitration and automatic renewal clauses."),
                 source_type="url",
                 source_value="https://example.com/terms",
                 raw_input_excerpt=(

@@ -126,9 +126,7 @@ def test_ingest_extension_text_uses_submitted_text_without_url_fetch() -> None:
         request=ExtractionIngestionRequest(
             source_kind=ExtractionSourceKind.EXTENSION_TEXT,
             original_source_value="https://example.com/terms",
-            submitted_text=(
-                "These terms include arbitration and automatic renewal language."
-            ),
+            submitted_text=("These terms include arbitration and automatic renewal language."),
             title="Example Terms",
             agreed_at=None,
             source_metadata={},

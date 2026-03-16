@@ -33,7 +33,6 @@ from .extraction_contracts import (
     ExtractionSourceKind,
 )
 
-
 MIN_ANALYZABLE_TEXT_LENGTH = 20
 DEFAULT_EXCERPT_MAX_LENGTH = 280
 DEFAULT_INGEST_TIMEOUT_SECONDS = 8.0
@@ -86,9 +85,7 @@ class HttpxUrlContentFetcher:
             follow_redirects=True,
             timeout=self._timeout_seconds,
             headers={
-                "User-Agent": (
-                    "TermsAnalyzerBot/0.1 (+https://example.invalid/content-ingestion)"
-                )
+                "User-Agent": ("TermsAnalyzerBot/0.1 (+https://example.invalid/content-ingestion)")
             },
         )
         response.raise_for_status()
@@ -273,9 +270,7 @@ class ContentIngestionService:
             "Fetched content exceeded max length and was truncated.",
         )
 
-    def _build_excerpt(
-        self, text: str, max_length: int = DEFAULT_EXCERPT_MAX_LENGTH
-    ) -> str:
+    def _build_excerpt(self, text: str, max_length: int = DEFAULT_EXCERPT_MAX_LENGTH) -> str:
         normalized = self._normalize_text(text)
         return normalized[:max_length]
 

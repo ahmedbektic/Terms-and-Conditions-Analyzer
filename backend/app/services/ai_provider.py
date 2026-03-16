@@ -94,9 +94,7 @@ class ProviderAnalysisResult:
     flagged_clauses: list[StoredFlaggedClause]
     completed_at: datetime
     provider_identity: ProviderIdentity
-    execution_metadata: ProviderExecutionMetadata = field(
-        default_factory=ProviderExecutionMetadata
-    )
+    execution_metadata: ProviderExecutionMetadata = field(default_factory=ProviderExecutionMetadata)
 
     @property
     def model_name(self) -> str:
@@ -245,8 +243,7 @@ class OpenAICompatibleAnalysisProvider:
             payload = response.json()
         except (httpx.HTTPError, ValueError) as error:
             raise AnalysisProviderInvocationError(
-                "OpenAI-compatible invocation failed "
-                f"({error.__class__.__name__})."
+                "OpenAI-compatible invocation failed " f"({error.__class__.__name__})."
             ) from error
 
         if not isinstance(payload, Mapping):
@@ -315,9 +312,7 @@ class GeminiAnalysisProvider:
     def _invoke_generate_content(
         self, *, analysis_input: AnalysisInput
     ) -> _AIProviderInvocationResult:
-        endpoint = (
-            f"{self._base_url}/models/{self._model_name}:generateContent?key={self._api_key}"
-        )
+        endpoint = f"{self._base_url}/models/{self._model_name}:generateContent?key={self._api_key}"
         user_payload = _build_provider_user_payload(analysis_input)
 
         try:
@@ -375,9 +370,7 @@ class GeminiAnalysisProvider:
 
         finish_reason = first_candidate.get("finishReason")
         model_version = payload.get("modelVersion")
-        trace_id = response.headers.get("x-goog-request-id") or response.headers.get(
-            "x-request-id"
-        )
+        trace_id = response.headers.get("x-goog-request-id") or response.headers.get("x-request-id")
 
         return _AIProviderInvocationResult(
             model_name=self._model_name,
@@ -693,9 +686,7 @@ def _parse_json_response_content(raw_content: str) -> dict:
     return parsed
 
 
-def _parse_flagged_clauses(
-    raw_value: object, *, source_text: str
-) -> list[StoredFlaggedClause]:
+def _parse_flagged_clauses(raw_value: object, *, source_text: str) -> list[StoredFlaggedClause]:
     if not isinstance(raw_value, list):
         return []
 
