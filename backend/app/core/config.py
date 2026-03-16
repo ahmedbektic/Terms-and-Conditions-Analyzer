@@ -52,6 +52,45 @@ class Settings:
         "SUPABASE_JWKS_HTTP_TIMEOUT_SECONDS", "5"
     )
     supabase_jwt_leeway_seconds: int = _env_int("SUPABASE_JWT_LEEWAY_SECONDS", "30")
+    # Analysis provider runtime selection.
+    # deterministic -> deterministic provider only (default safe mode)
+    # ai -> selected AI provider path (with deterministic fallback if enabled)
+    analysis_provider_mode: str = os.getenv("ANALYSIS_PROVIDER_MODE", "deterministic").lower()
+    # Gemini is the intended default provider when AI mode is enabled.
+    analysis_ai_provider_kind: str = os.getenv("ANALYSIS_AI_PROVIDER_KIND", "gemini").lower()
+    # OpenAI-compatible provider settings. Legacy ANALYSIS_AI_* vars are accepted
+    # as fallbacks to preserve existing local configuration behavior.
+    analysis_openai_compatible_api_key: str = os.getenv(
+        "ANALYSIS_OPENAI_COMPATIBLE_API_KEY",
+        os.getenv("ANALYSIS_AI_API_KEY", ""),
+    )
+    analysis_openai_compatible_model: str = os.getenv(
+        "ANALYSIS_OPENAI_COMPATIBLE_MODEL",
+        os.getenv("ANALYSIS_AI_MODEL", ""),
+    )
+    analysis_openai_compatible_base_url: str = os.getenv(
+        "ANALYSIS_OPENAI_COMPATIBLE_BASE_URL",
+        os.getenv("ANALYSIS_AI_BASE_URL", "https://api.openai.com/v1"),
+    )
+    # Gemini native provider settings.
+    analysis_gemini_api_key: str = os.getenv(
+        "ANALYSIS_GEMINI_API_KEY",
+        os.getenv("ANALYSIS_AI_API_KEY", ""),
+    )
+    analysis_gemini_model: str = os.getenv(
+        "ANALYSIS_GEMINI_MODEL",
+        os.getenv("ANALYSIS_AI_MODEL", "gemini-2.0-flash"),
+    )
+    analysis_gemini_base_url: str = os.getenv(
+        "ANALYSIS_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
+    )
+    analysis_ai_timeout_seconds: float = _env_float("ANALYSIS_AI_TIMEOUT_SECONDS", "20")
+    analysis_ai_temperature: float = _env_float("ANALYSIS_AI_TEMPERATURE", "0.1")
+    analysis_ai_fallback_to_deterministic: bool = _env_bool(
+        "ANALYSIS_AI_FALLBACK_TO_DETERMINISTIC", "true"
+    )
+    # Internal execution seam: sync is active now, queued modes can be added later.
+    analysis_execution_mode: str = os.getenv("ANALYSIS_EXECUTION_MODE", "sync").lower()
     cors_allowed_origins_csv: str = os.getenv(
         "CORS_ALLOWED_ORIGINS",
         "http://localhost:5173,http://127.0.0.1:5173",

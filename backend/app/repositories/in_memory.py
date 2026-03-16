@@ -7,6 +7,7 @@ when a Supabase/Postgres implementation is introduced.
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+from .analysis_status import AnalysisLifecycleStatus, normalize_analysis_lifecycle_status
 from .models import StoredAgreement, StoredFlaggedClause, StoredReport
 
 
@@ -81,13 +82,14 @@ class InMemoryReportRepository:
         source_type: str,
         source_value: str,
         raw_input_excerpt: str,
-        status: str,
+        status: AnalysisLifecycleStatus,
         summary: str,
         trust_score: int,
         model_name: str,
         flagged_clauses: list[StoredFlaggedClause],
         completed_at: datetime | None,
     ) -> StoredReport:
+        normalized_status = normalize_analysis_lifecycle_status(status)
         report = StoredReport(
             id=uuid4(),
             agreement_id=agreement_id,
@@ -96,7 +98,7 @@ class InMemoryReportRepository:
             source_type=source_type,
             source_value=source_value,
             raw_input_excerpt=raw_input_excerpt,
-            status=status,
+            status=normalized_status,
             summary=summary,
             trust_score=trust_score,
             model_name=model_name,

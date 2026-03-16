@@ -17,7 +17,7 @@ def to_report_response(report: StoredReport) -> ReportResponse:
         source_type=report.source_type,
         source_value=report.source_value,
         raw_input_excerpt=report.raw_input_excerpt,
-        status=report.status,
+        status=report.status.value,
         summary=report.summary,
         trust_score=report.trust_score,
         model_name=report.model_name,

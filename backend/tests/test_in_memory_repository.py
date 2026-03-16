@@ -1,11 +1,14 @@
 from datetime import datetime, timezone
 import time
 
+import pytest
+
 from app.repositories.in_memory import (
     InMemoryAgreementRepository,
     InMemoryReportRepository,
     InMemoryStorage,
 )
+from app.repositories.analysis_status import AnalysisLifecycleStatus
 from app.repositories.models import StoredFlaggedClause
 
 
@@ -38,7 +41,7 @@ def test_report_repository_scopes_reports_by_owner() -> None:
         source_type="text",
         source_value="A",
         raw_input_excerpt="A excerpt",
-        status="completed",
+        status=AnalysisLifecycleStatus.COMPLETED,
         summary="summary A",
         trust_score=70,
         model_name="test-model",
@@ -52,7 +55,7 @@ def test_report_repository_scopes_reports_by_owner() -> None:
         source_type="text",
         source_value="B",
         raw_input_excerpt="B excerpt",
-        status="completed",
+        status=AnalysisLifecycleStatus.COMPLETED,
         summary="summary B",
         trust_score=60,
         model_name="test-model",
@@ -94,7 +97,7 @@ def test_report_repository_lists_newest_first() -> None:
         source_type="text",
         source_value="A",
         raw_input_excerpt="first excerpt",
-        status="completed",
+        status=AnalysisLifecycleStatus.COMPLETED,
         summary="first summary",
         trust_score=80,
         model_name="test-model",
@@ -119,7 +122,7 @@ def test_report_repository_lists_newest_first() -> None:
         source_type="text",
         source_value="A",
         raw_input_excerpt="second excerpt",
-        status="completed",
+        status=AnalysisLifecycleStatus.COMPLETED,
         summary="second summary",
         trust_score=55,
         model_name="test-model",
@@ -132,3 +135,76 @@ def test_report_repository_lists_newest_first() -> None:
         subject_id="user-a",
     )
     assert [report.id for report in reports] == [report_two.id, report_one.id]
+
+
+def test_report_repository_supports_lifecycle_status_values() -> None:
+    storage = InMemoryStorage()
+    agreement_repository = InMemoryAgreementRepository(storage)
+    report_repository = InMemoryReportRepository(storage)
+    agreement = agreement_repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        title="A",
+        source_url=None,
+        agreed_at=None,
+        terms_text="This terms text is long enough to pass validation.",
+    )
+
+    lifecycle_states = (
+        AnalysisLifecycleStatus.PENDING,
+        AnalysisLifecycleStatus.RUNNING,
+        AnalysisLifecycleStatus.COMPLETED,
+        AnalysisLifecycleStatus.FAILED,
+    )
+    for lifecycle_state in lifecycle_states:
+        report_repository.create(
+            agreement_id=agreement.id,
+            subject_type="supabase_user",
+            subject_id="user-a",
+            source_type="text",
+            source_value="A",
+            raw_input_excerpt="excerpt",
+            status=lifecycle_state,
+            summary=f"{lifecycle_state.value} summary",
+            trust_score=50,
+            model_name="test-model",
+            flagged_clauses=[],
+            completed_at=datetime.now(timezone.utc),
+        )
+
+    reports = report_repository.list_for_subject(
+        subject_type="supabase_user",
+        subject_id="user-a",
+    )
+    report_statuses = {report.status for report in reports}
+    assert report_statuses == set(lifecycle_states)
+
+
+def test_report_repository_rejects_unknown_lifecycle_status() -> None:
+    storage = InMemoryStorage()
+    agreement_repository = InMemoryAgreementRepository(storage)
+    report_repository = InMemoryReportRepository(storage)
+    agreement = agreement_repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        title="A",
+        source_url=None,
+        agreed_at=None,
+        terms_text="This terms text is long enough to pass validation.",
+    )
+
+    with pytest.raises(ValueError):
+        report_repository.create(
+            agreement_id=agreement.id,
+            subject_type="supabase_user",
+            subject_id="user-a",
+            source_type="text",
+            source_value="A",
+            raw_input_excerpt="excerpt",
+            status="unknown_status",
+            summary="summary",
+            trust_score=50,
+            model_name="test-model",
+            flagged_clauses=[],
+            completed_at=datetime.now(timezone.utc),
+        )

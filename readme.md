@@ -224,13 +224,19 @@ Frontend optional env var:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-Backend auth env vars:
+Backend auth/runtime env vars:
 
 - `AUTH_REQUIRE_JWT_SIGNATURE_VERIFICATION`
 - `SUPABASE_JWT_AUDIENCE`
 - `SUPABASE_JWT_ISSUER` (or `SUPABASE_URL` for derived issuer)
 - `SUPABASE_JWT_JWKS_URL` (or derived from issuer)
 - `SUPABASE_JWT_SECRET` (alternative to JWKS)
+- `ANALYSIS_PROVIDER_MODE` (`deterministic` default, `ai` for AI-backed mode)
+- `ANALYSIS_AI_PROVIDER_KIND` (`gemini` default, or `openai_compatible`)
+- `ANALYSIS_GEMINI_API_KEY` and `ANALYSIS_GEMINI_MODEL` (Gemini mode)
+- `ANALYSIS_OPENAI_COMPATIBLE_API_KEY` and `ANALYSIS_OPENAI_COMPATIBLE_MODEL` (OpenAI-compatible mode)
+- `ANALYSIS_AI_FALLBACK_TO_DETERMINISTIC` (`true` recommended)
+- `ANALYSIS_EXECUTION_MODE` (`sync` active; seam for future queued/worker mode)
 
 ## Persistence Notes
 
