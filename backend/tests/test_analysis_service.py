@@ -29,7 +29,7 @@ def _build_service() -> AnalysisOrchestrationService:
 
 def test_submit_and_analyze_returns_summary_flags_and_trust_score() -> None:
     service = _build_service()
-    subject = RequestSubject(subject_type="anonymous_session", subject_id="session-a")
+    subject = RequestSubject(subject_type="supabase_user", subject_id="user-a")
 
     report = service.submit_and_analyze(
         subject=subject,
@@ -52,7 +52,7 @@ def test_submit_and_analyze_returns_summary_flags_and_trust_score() -> None:
 
 def test_submit_and_analyze_rejects_missing_input() -> None:
     service = _build_service()
-    subject = RequestSubject(subject_type="anonymous_session", subject_id="session-a")
+    subject = RequestSubject(subject_type="supabase_user", subject_id="user-a")
 
     with pytest.raises(InvalidSubmissionError):
         service.submit_and_analyze(
@@ -68,7 +68,7 @@ def test_submit_and_analyze_rejects_missing_input() -> None:
 
 def test_trigger_manual_analysis_raises_when_agreement_not_found() -> None:
     service = _build_service()
-    subject = RequestSubject(subject_type="anonymous_session", subject_id="session-a")
+    subject = RequestSubject(subject_type="supabase_user", subject_id="user-a")
 
     with pytest.raises(AgreementNotFoundError):
         service.trigger_manual_analysis(subject=subject, agreement_id=uuid.uuid4())

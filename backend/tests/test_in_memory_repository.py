@@ -15,16 +15,16 @@ def test_report_repository_scopes_reports_by_owner() -> None:
     report_repository = InMemoryReportRepository(storage)
 
     agreement_a = agreement_repository.create(
-        subject_type="anonymous_session",
-        subject_id="session-a",
+        subject_type="supabase_user",
+        subject_id="user-a",
         title="A",
         source_url=None,
         agreed_at=None,
         terms_text="This terms text is long enough to pass validation.",
     )
     agreement_b = agreement_repository.create(
-        subject_type="anonymous_session",
-        subject_id="session-b",
+        subject_type="supabase_user",
+        subject_id="user-b",
         title="B",
         source_url=None,
         agreed_at=None,
@@ -33,8 +33,8 @@ def test_report_repository_scopes_reports_by_owner() -> None:
 
     report_repository.create(
         agreement_id=agreement_a.id,
-        subject_type="anonymous_session",
-        subject_id="session-a",
+        subject_type="supabase_user",
+        subject_id="user-a",
         source_type="text",
         source_value="A",
         raw_input_excerpt="A excerpt",
@@ -47,8 +47,8 @@ def test_report_repository_scopes_reports_by_owner() -> None:
     )
     report_repository.create(
         agreement_id=agreement_b.id,
-        subject_type="anonymous_session",
-        subject_id="session-b",
+        subject_type="supabase_user",
+        subject_id="user-b",
         source_type="text",
         source_value="B",
         raw_input_excerpt="B excerpt",
@@ -61,12 +61,12 @@ def test_report_repository_scopes_reports_by_owner() -> None:
     )
 
     owner_a_reports = report_repository.list_for_subject(
-        subject_type="anonymous_session",
-        subject_id="session-a",
+        subject_type="supabase_user",
+        subject_id="user-a",
     )
     owner_b_reports = report_repository.list_for_subject(
-        subject_type="anonymous_session",
-        subject_id="session-b",
+        subject_type="supabase_user",
+        subject_id="user-b",
     )
 
     assert len(owner_a_reports) == 1
@@ -80,8 +80,8 @@ def test_report_repository_lists_newest_first() -> None:
     agreement_repository = InMemoryAgreementRepository(storage)
     report_repository = InMemoryReportRepository(storage)
     agreement = agreement_repository.create(
-        subject_type="anonymous_session",
-        subject_id="session-a",
+        subject_type="supabase_user",
+        subject_id="user-a",
         title="A",
         source_url=None,
         agreed_at=None,
@@ -89,8 +89,8 @@ def test_report_repository_lists_newest_first() -> None:
     )
     report_one = report_repository.create(
         agreement_id=agreement.id,
-        subject_type="anonymous_session",
-        subject_id="session-a",
+        subject_type="supabase_user",
+        subject_id="user-a",
         source_type="text",
         source_value="A",
         raw_input_excerpt="first excerpt",
@@ -114,8 +114,8 @@ def test_report_repository_lists_newest_first() -> None:
 
     report_two = report_repository.create(
         agreement_id=agreement.id,
-        subject_type="anonymous_session",
-        subject_id="session-a",
+        subject_type="supabase_user",
+        subject_id="user-a",
         source_type="text",
         source_value="A",
         raw_input_excerpt="second excerpt",
@@ -128,7 +128,7 @@ def test_report_repository_lists_newest_first() -> None:
     )
 
     reports = report_repository.list_for_subject(
-        subject_type="anonymous_session",
-        subject_id="session-a",
+        subject_type="supabase_user",
+        subject_id="user-a",
     )
     assert [report.id for report in reports] == [report_two.id, report_one.id]

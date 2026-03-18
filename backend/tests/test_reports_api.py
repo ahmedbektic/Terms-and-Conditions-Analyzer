@@ -1,13 +1,49 @@
+from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
+import jwt
 import pytest
 
+from app.api import deps
 from app.api.deps import reset_demo_storage
+from app.auth.subject_resolver import AuthSubjectResolver
+from app.auth.supabase_jwt import SupabaseJwtVerifier
 from app.main import create_app
+
+TEST_SECRET = "e" * 48
+TEST_ISSUER = "https://reports-test.supabase.co/auth/v1"
+TEST_AUDIENCE = "authenticated"
+
+
+def _issue_token(*, sub: str, exp_offset_seconds: int = 3600) -> str:
+    payload = {
+        "sub": sub,
+        "aud": TEST_AUDIENCE,
+        "iss": TEST_ISSUER,
+        "exp": int(
+            (datetime.now(timezone.utc) + timedelta(seconds=exp_offset_seconds)).timestamp()
+        ),
+    }
+    return jwt.encode(payload, TEST_SECRET, algorithm="HS256")
+
+
+def _auth_headers(user_id: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {_issue_token(sub=user_id)}"}
 
 
 @pytest.fixture(autouse=True)
-def _clear_storage() -> None:
+def _clear_storage(monkeypatch: pytest.MonkeyPatch) -> None:
     reset_demo_storage()
+    verifier = SupabaseJwtVerifier(
+        jwt_secret=TEST_SECRET,
+        expected_issuer=TEST_ISSUER,
+        expected_audience=TEST_AUDIENCE,
+        require_signature_verification=True,
+    )
+    monkeypatch.setattr(
+        deps,
+        "_request_subject_resolver",
+        AuthSubjectResolver(jwt_verifier=verifier),
+    )
 
 
 @pytest.fixture()
@@ -29,7 +65,7 @@ def test_submit_analyze_and_fetch_history(client: TestClient) -> None:
     create_response = client.post(
         "/api/v1/reports/analyze",
         json=payload,
-        headers={"X-Session-Id": "session-a"},
+        headers=_auth_headers("user-a"),
     )
     assert create_response.status_code == 201
     created_report = create_response.json()
@@ -40,7 +76,7 @@ def test_submit_analyze_and_fetch_history(client: TestClient) -> None:
     assert 0 <= created_report["trust_score"] <= 100
     assert len(created_report["flagged_clauses"]) >= 1
 
-    list_response = client.get("/api/v1/reports", headers={"X-Session-Id": "session-a"})
+    list_response = client.get("/api/v1/reports", headers=_auth_headers("user-a"))
     assert list_response.status_code == 200
     report_list = list_response.json()
     assert len(report_list) == 1
@@ -48,23 +84,23 @@ def test_submit_analyze_and_fetch_history(client: TestClient) -> None:
 
     get_response = client.get(
         f"/api/v1/reports/{created_report['id']}",
-        headers={"X-Session-Id": "session-a"},
+        headers=_auth_headers("user-a"),
     )
     assert get_response.status_code == 200
     fetched_report = get_response.json()
     assert fetched_report["id"] == created_report["id"]
 
 
-def test_reports_are_scoped_by_session_owner(client: TestClient) -> None:
+def test_reports_are_scoped_by_authenticated_owner(client: TestClient) -> None:
     response = client.post(
         "/api/v1/reports/analyze",
         json={"source_url": "https://example.com/terms"},
-        headers={"X-Session-Id": "session-a"},
+        headers=_auth_headers("user-a"),
     )
     assert response.status_code == 201
 
-    list_owner_a = client.get("/api/v1/reports", headers={"X-Session-Id": "session-a"})
-    list_owner_b = client.get("/api/v1/reports", headers={"X-Session-Id": "session-b"})
+    list_owner_a = client.get("/api/v1/reports", headers=_auth_headers("user-a"))
+    list_owner_b = client.get("/api/v1/reports", headers=_auth_headers("user-b"))
 
     assert list_owner_a.status_code == 200
     assert list_owner_b.status_code == 200
@@ -72,20 +108,20 @@ def test_reports_are_scoped_by_session_owner(client: TestClient) -> None:
     assert list_owner_b.json() == []
 
 
-def test_submit_analyze_requires_session_header(client: TestClient) -> None:
+def test_submit_analyze_requires_bearer_token(client: TestClient) -> None:
     response = client.post(
         "/api/v1/reports/analyze",
         json={"terms_text": "This content is valid and sufficiently long for analysis."},
     )
-    assert response.status_code == 400
-    assert "X-Session-Id" in response.json()["detail"]
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing Bearer token."
 
 
 def test_submit_analyze_rejects_missing_input(client: TestClient) -> None:
     response = client.post(
         "/api/v1/reports/analyze",
         json={},
-        headers={"X-Session-Id": "session-a"},
+        headers=_auth_headers("user-a"),
     )
     assert response.status_code == 422
 
@@ -93,6 +129,6 @@ def test_submit_analyze_rejects_missing_input(client: TestClient) -> None:
 def test_get_report_returns_404_when_report_not_found(client: TestClient) -> None:
     response = client.get(
         "/api/v1/reports/11111111-1111-1111-1111-111111111111",
-        headers={"X-Session-Id": "session-a"},
+        headers=_auth_headers("user-a"),
     )
     assert response.status_code == 404

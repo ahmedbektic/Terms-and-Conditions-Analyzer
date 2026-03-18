@@ -37,12 +37,14 @@ export function AgreementSubmissionForm({ onSubmit, isSubmitting }: AgreementSub
 
   return (
     <section className="panel">
-      <h2 className="panel-title">Submit Terms and Conditions</h2>
-      <p className="muted">
-        Enter terms text, a terms URL, or both. The report is generated and saved immediately.
-      </p>
-      <form className="form-grid" onSubmit={handleSubmit}>
-        <label className="field">
+      <header className="panel-header">
+        <h2 className="panel-title">Submit Terms and Conditions</h2>
+        <p className="panel-description">
+          Enter terms text, a terms URL, or both. The report is generated and saved immediately.
+        </p>
+      </header>
+      <form className="form-grid form-grid-submission" onSubmit={handleSubmit}>
+        <label className="field field-compact">
           <span>Agreement title</span>
           <input
             type="text"
@@ -51,7 +53,7 @@ export function AgreementSubmissionForm({ onSubmit, isSubmitting }: AgreementSub
             placeholder="Example: Acme Cloud Terms of Service"
           />
         </label>
-        <label className="field">
+        <label className="field field-compact">
           <span>Source URL</span>
           <input
             type="url"
@@ -60,7 +62,7 @@ export function AgreementSubmissionForm({ onSubmit, isSubmitting }: AgreementSub
             placeholder="https://example.com/terms"
           />
         </label>
-        <label className="field">
+        <label className="field field-compact">
           <span>Agreed date</span>
           <input
             type="date"
@@ -77,15 +79,21 @@ export function AgreementSubmissionForm({ onSubmit, isSubmitting }: AgreementSub
             rows={9}
           />
         </label>
+        <p className="field-help field-full">Provide at least one: source URL or terms text.</p>
         {formError ? (
-          <p className="inline-error" role="alert">
+          <p className="inline-error field-full" role="alert">
             {formError}
           </p>
         ) : null}
-        <div className="actions">
-          <button type="submit" disabled={isSubmitting}>
+        <div className="actions submission-actions field-full">
+          <button type="submit" className="button-primary" disabled={isSubmitting}>
             {isSubmitting ? 'Analyzing...' : 'Analyze and save report'}
           </button>
+          <p className="submit-hint">
+            {isSubmitting
+              ? 'Generating summary and clause risk analysis.'
+              : 'Reports are saved automatically to your history.'}
+          </p>
         </div>
       </form>
     </section>

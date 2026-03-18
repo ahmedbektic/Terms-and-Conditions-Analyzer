@@ -1,7 +1,7 @@
 /* Architecture note:
  * The dashboard hook talks only to this client so endpoint paths and headers
- * stay centralized. This makes it straightforward to add auth tokens later
- * without touching component code.
+ * stay centralized. Bearer-token propagation happens here so feature components
+ * stay transport-agnostic.
  */
 
 import type {
@@ -15,8 +15,8 @@ import type {
 
 export interface DashboardApiClientConfig {
   baseUrl: string;
-  getSessionId: () => string;
-  // Optional auth seam: supply bearer token resolver when login is introduced.
+  // Auth seam: caller provides access token resolver.
+  // extension can reuse this by providing its own token source.
   getAccessToken?: () => string | null;
   fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
@@ -39,13 +39,11 @@ export class DashboardApiError extends Error {
  */
 export class DashboardApiClient {
   private readonly baseUrl: string;
-  private readonly getSessionId: () => string;
   private readonly getAccessToken?: () => string | null;
   private readonly fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
   constructor(config: DashboardApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, '');
-    this.getSessionId = config.getSessionId;
     this.getAccessToken = config.getAccessToken;
     const fetchCandidate = config.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.fetchImpl = (input: RequestInfo | URL, init?: RequestInit) =>
@@ -85,7 +83,6 @@ export class DashboardApiClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    // Session scoping is used today; bearer auth can be layered in without UI changes.
     const accessToken = this.getAccessToken?.();
     const authorizationHeader =
       accessToken && accessToken.trim() ? { Authorization: `Bearer ${accessToken}` } : {};
@@ -94,8 +91,8 @@ export class DashboardApiClient {
       ...init,
       headers: {
         'Content-Type': 'application/json',
-        'X-Session-Id': this.getSessionId(),
         ...authorizationHeader,
+        // Caller-provided headers are applied last for deliberate overrides.
         ...(init?.headers ?? {}),
       },
     });
