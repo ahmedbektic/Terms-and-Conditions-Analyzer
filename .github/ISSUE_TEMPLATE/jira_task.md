@@ -1,9 +1,4 @@
----
-name: User Story
-about: Create a backlog story using the team's Jira-style story methodology.
-title: "[Story]: As a <user>, I want <goal>, so that <benefit>"
-labels: type:story
----
+## Issue
 
 ## Jira / story reference
 Link the corresponding Jira ticket or external story item (if applicable).
