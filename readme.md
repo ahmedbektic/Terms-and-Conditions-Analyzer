@@ -89,12 +89,6 @@ Backend (Python):
 - Format check only: `py -3.10 -m black --check backend`
 - Run tests: `py -3.10 -m pytest backend/tests -q`
 
-If you prefer the project venv explicitly:
-
-- `.\.venv\Scripts\python.exe -m black backend`
-- `.\.venv\Scripts\python.exe -m black --check backend`
-- `.\.venv\Scripts\python.exe -m pytest backend\tests -q`
-
 Frontend (React/TypeScript):
 
 - Lint check: `npm run lint:frontend`
@@ -105,6 +99,108 @@ CI currently runs:
 
 - Frontend: lint, build, test
 - Backend: `black --check backend` and `pytest backend/tests`
+- Extension: typecheck, test, build
+
+## Browser Extension Local Runtime Testing (SCRUM-9)
+
+Detailed guide:
+
+- `extension/README.md` (see `Local Runtime Test (End-to-End)`)
+
+Quick path (PowerShell, from repo root):
+
+1. Start backend + frontend:
+   - `.\scripts\run-backend.ps1`
+   - `.\scripts\run-frontend.ps1`
+2. Build extension:
+   - `npm install --prefix extension`
+   - `npm run --prefix extension build`
+3. Load unpacked extension from `extension/` in `chrome://extensions`.
+4. Ensure Supabase redirect allow list includes `https://<extension-id>.chromiumapp.org/supabase-auth`.
+   - Google provider must be enabled in Supabase Auth for the current environment.
+   - Setup matrix: `docs/google-auth-setup-matrix.md`.
+5. Open extension popup and use `Log in` (Google OAuth).
+6. Open a policy page, click extension icon, then click `Analyze page`.
+7. Do not manually seed `chrome.storage.local.auth_session`; runtime auth writes session state after successful popup sign-in.
+
+Notes:
+
+- If you hit extension-origin CORS issues, append
+  `chrome-extension://<extension-id>` to `CORS_ALLOWED_ORIGINS` in `backend/.env`
+  and restart backend.
+- If extension analysis fails with network/permission errors, also verify the
+  backend host is present in extension `manifest.json` `host_permissions`.
+
+## Local Google Auth Env Checklist (Web + Extension)
+
+Use this exact env baseline for local OAuth verification.
+
+### 1) Backend `backend/.env`
+
+```env
+PERSISTENCE_BACKEND=memory
+AUTH_REQUIRE_JWT_SIGNATURE_VERIFICATION=true
+SUPABASE_URL=https://<your-project-ref>.supabase.co
+SUPABASE_JWT_AUDIENCE=authenticated
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+If extension analyze calls fail with CORS, append extension origin:
+
+```env
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,chrome-extension://<your-extension-id>
+```
+
+Restart backend after editing `backend/.env`.
+
+### 2) Frontend `frontend/.env.local`
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1
+VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
+```
+
+### 3) Extension auth config
+
+The extension build reads auth/API config from these sources:
+
+1. process env (`EXTENSION_*`, then `VITE_*`)
+2. extension env files (`extension/.env`, `extension/.env.local`)
+3. frontend env files (`frontend/.env`, `frontend/.env.local`) as fallback
+4. API fallback default only: `http://127.0.0.1:8000/api/v1`
+
+Optional explicit override before build:
+
+```powershell
+$env:EXTENSION_API_BASE_URL="http://127.0.0.1:8000/api/v1"
+$env:EXTENSION_SUPABASE_URL="https://<your-project-ref>.supabase.co"
+$env:EXTENSION_SUPABASE_ANON_KEY="<your-supabase-anon-key>"
+npm run --prefix extension build
+```
+
+Optional runtime override for debugging (service-worker console):
+
+```javascript
+await chrome.storage.local.set({
+  api_base_url: "http://127.0.0.1:8000/api/v1",
+  extraction_min_length: 160,
+});
+```
+
+`extraction_min_length` is intentionally dev-oriented; keep it a positive integer.
+
+### 4) Required Supabase redirect allow-list entries
+
+In Supabase Auth URL configuration, include:
+
+- `http://127.0.0.1:5173`
+- `http://localhost:5173`
+- `https://<extension-id>.chromiumapp.org/supabase-auth`
+
+Google provider setup details and redirect matrix:
+
+- `docs/google-auth-setup-matrix.md`
 
 ## Environment Configuration
 
@@ -128,13 +224,19 @@ Frontend optional env var:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-Backend auth env vars:
+Backend auth/runtime env vars:
 
 - `AUTH_REQUIRE_JWT_SIGNATURE_VERIFICATION`
 - `SUPABASE_JWT_AUDIENCE`
 - `SUPABASE_JWT_ISSUER` (or `SUPABASE_URL` for derived issuer)
 - `SUPABASE_JWT_JWKS_URL` (or derived from issuer)
 - `SUPABASE_JWT_SECRET` (alternative to JWKS)
+- `ANALYSIS_PROVIDER_MODE` (`deterministic` default, `ai` for AI-backed mode)
+- `ANALYSIS_AI_PROVIDER_KIND` (`gemini` default, or `openai_compatible`)
+- `ANALYSIS_GEMINI_API_KEY` and `ANALYSIS_GEMINI_MODEL` (Gemini mode)
+- `ANALYSIS_OPENAI_COMPATIBLE_API_KEY` and `ANALYSIS_OPENAI_COMPATIBLE_MODEL` (OpenAI-compatible mode)
+- `ANALYSIS_AI_FALLBACK_TO_DETERMINISTIC` (`true` recommended)
+- `ANALYSIS_EXECUTION_MODE` (`sync` active; seam for future queued/worker mode)
 
 ## Persistence Notes
 
@@ -148,3 +250,5 @@ In Postgres mode, the backend uses tables:
 See `docs/` for style and naming conventions.
 For dashboard feature flow and extension seams, see `docs/dashboard-analysis-handoff.md`.
 For auth boundaries and ownership semantics, see `docs/auth-architecture-scrum11.md`.
+For SCRUM-9 extension implementation status and explicit unfinished areas, see `docs/scrum-9-handoff-post-implementation.md`.
+For Google provider enablement and redirect setup across web + extension, see `docs/google-auth-setup-matrix.md`.

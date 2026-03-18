@@ -67,7 +67,7 @@ def list_reports(
             agreement_id=report.agreement_id,
             source_type=report.source_type,
             source_value=report.source_value,
-            status=report.status,
+            status=report.status.value,
             trust_score=report.trust_score,
             model_name=report.model_name,
             created_at=report.created_at,

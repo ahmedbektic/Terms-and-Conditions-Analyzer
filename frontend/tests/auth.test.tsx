@@ -11,6 +11,10 @@ import type {
   AuthenticatedSession,
   PasswordCredentials,
 } from '../src/lib/auth/contracts';
+import {
+  AUTH_PROVIDER_GOOGLE,
+  normalizeProviderSignInError,
+} from '../src/lib/auth/providerErrors';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -133,6 +137,25 @@ describe('AuthEntryPoint', () => {
     expect(harness.signInWithGoogleMock).toHaveBeenCalledTimes(1);
   });
 
+  it('surfaces normalized Google provider-disabled errors in login UI', async () => {
+    const harness = createAuthClientHarness(null);
+    const user = userEvent.setup();
+    const expectedMessage = normalizeProviderSignInError(
+      new Error('Unsupported provider: provider is not enabled'),
+      AUTH_PROVIDER_GOOGLE,
+    ).message;
+
+    harness.signInWithGoogleMock.mockRejectedValueOnce(new Error(expectedMessage));
+
+    renderAuthEntryPoint(harness);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy());
+
+    await user.click(screen.getByRole('button', { name: 'Continue with Google' }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(screen.getByText(expectedMessage)).toBeTruthy();
+  });
+
   it('handles sign-in happy path and renders dashboard with authenticated identity', async () => {
     const harness = createAuthClientHarness(null);
     const user = userEvent.setup();
@@ -227,9 +250,8 @@ describe('AuthEntryPoint', () => {
     expect(reportsCall).toBeTruthy();
 
     const init = reportsCall?.[1] as RequestInit | undefined;
-    const headers = (init?.headers ?? {}) as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer persisted-session-token');
-    expect(headers['X-Session-Id']).toBeUndefined();
+    expect(readHeader(init?.headers, 'Authorization')).toBe('Bearer persisted-session-token');
+    expect(readHeader(init?.headers, 'X-Session-Id')).toBeNull();
   });
 
   it('returns to login with a clear message when an active session later expires', async () => {
@@ -252,3 +274,29 @@ describe('AuthEntryPoint', () => {
     expect(screen.getByText('Your session has ended. Please sign in again.')).toBeTruthy();
   });
 });
+
+function readHeader(headers: HeadersInit | undefined, key: string): string | null {
+  if (!headers) {
+    return null;
+  }
+
+  if (headers instanceof Headers) {
+    return headers.get(key);
+  }
+
+  if (Array.isArray(headers)) {
+    const found = headers.find(([name]) => name.toLowerCase() === key.toLowerCase());
+    return found ? found[1] : null;
+  }
+
+  const record = headers as Record<string, string | undefined>;
+  const direct = record[key];
+  if (typeof direct === 'string') {
+    return direct;
+  }
+
+  const caseInsensitive = Object.entries(record).find(
+    ([name, value]) => name.toLowerCase() === key.toLowerCase() && typeof value === 'string',
+  );
+  return caseInsensitive ? caseInsensitive[1] ?? null : null;
+}

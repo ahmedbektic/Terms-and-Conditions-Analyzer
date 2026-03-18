@@ -84,17 +84,25 @@ export class DashboardApiClient {
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const accessToken = this.getAccessToken?.();
-    const authorizationHeader =
-      accessToken && accessToken.trim() ? { Authorization: `Bearer ${accessToken}` } : {};
+    const headers = new Headers({
+      'Content-Type': 'application/json',
+    });
+
+    if (accessToken && accessToken.trim()) {
+      headers.set('Authorization', `Bearer ${accessToken}`);
+    }
+
+    // Caller-provided headers are applied last for deliberate overrides.
+    if (init?.headers) {
+      const callerHeaders = new Headers(init.headers);
+      callerHeaders.forEach((value, key) => {
+        headers.set(key, value);
+      });
+    }
 
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...authorizationHeader,
-        // Caller-provided headers are applied last for deliberate overrides.
-        ...(init?.headers ?? {}),
-      },
+      headers,
     });
 
     const contentType = response.headers.get('content-type') ?? '';

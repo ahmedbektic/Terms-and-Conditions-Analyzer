@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from .analysis_status import AnalysisLifecycleStatus
+
 
 @dataclass(frozen=True)
 class StoredFlaggedClause:
@@ -36,7 +38,7 @@ class StoredAgreement:
 
 @dataclass(frozen=True)
 class StoredReport:
-    """Persisted analysis report record."""
+    """Persisted analysis report record with explicit lifecycle status."""
 
     id: UUID
     agreement_id: UUID
@@ -45,7 +47,7 @@ class StoredReport:
     source_type: str
     source_value: str
     raw_input_excerpt: str
-    status: str
+    status: AnalysisLifecycleStatus
     summary: str
     trust_score: int
     model_name: str

@@ -18,8 +18,11 @@ from ..repositories.in_memory import (
     InMemoryReportRepository,
     InMemoryStorage,
 )
-from ..services.ai_provider import DeterministicAnalysisProvider
+from ..services.ai_provider import AnalysisProviderRuntimeConfig, build_analysis_provider
 from ..services.analysis_service import AnalysisOrchestrationService, RequestSubject
+from ..services.content_ingestion import ContentIngestionService
+from ..services.analysis_execution import build_analysis_execution_strategy
+from ..services.submission_preparation import SubmissionPreparationService
 
 
 def _build_persistence_dependencies():
@@ -59,11 +62,40 @@ def _build_persistence_dependencies():
 
 
 _agreement_repository, _report_repository, _persistence_storage = _build_persistence_dependencies()
-_analysis_provider = DeterministicAnalysisProvider()
+# Provider selection is runtime-configured; deterministic remains the safe default
+# when AI mode is disabled or missing required credentials. In AI mode, Gemini
+# is the preferred provider kind unless ANALYSIS_AI_PROVIDER_KIND is overridden.
+_analysis_provider = build_analysis_provider(
+    config=AnalysisProviderRuntimeConfig(
+        mode=settings.analysis_provider_mode,
+        ai_provider_kind=settings.analysis_ai_provider_kind,
+        ai_timeout_seconds=settings.analysis_ai_timeout_seconds,
+        ai_temperature=settings.analysis_ai_temperature,
+        ai_fallback_to_deterministic=settings.analysis_ai_fallback_to_deterministic,
+        openai_compatible_api_key=settings.analysis_openai_compatible_api_key,
+        openai_compatible_model_name=settings.analysis_openai_compatible_model,
+        openai_compatible_base_url=settings.analysis_openai_compatible_base_url,
+        gemini_api_key=settings.analysis_gemini_api_key,
+        gemini_model_name=settings.analysis_gemini_model,
+        gemini_base_url=settings.analysis_gemini_base_url,
+    )
+)
+_analysis_execution_strategy = build_analysis_execution_strategy(
+    # This mode seam keeps request-path sync behavior today while allowing
+    # future queued/worker execution to be introduced behind the same service.
+    mode=settings.analysis_execution_mode,
+    analysis_provider=_analysis_provider,
+    report_repository=_report_repository,
+)
+_content_ingestion_service = ContentIngestionService()
+_submission_preparation_service = SubmissionPreparationService(
+    content_ingestion_service=_content_ingestion_service
+)
 _analysis_service = AnalysisOrchestrationService(
     agreement_repository=_agreement_repository,
     report_repository=_report_repository,
-    analysis_provider=_analysis_provider,
+    analysis_execution_strategy=_analysis_execution_strategy,
+    submission_preparation_service=_submission_preparation_service,
 )
 
 

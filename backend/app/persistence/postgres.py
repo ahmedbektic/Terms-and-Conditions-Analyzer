@@ -13,6 +13,10 @@ from uuid import UUID, uuid4
 import psycopg
 from psycopg.rows import dict_row
 
+from ..repositories.analysis_status import (
+    AnalysisLifecycleStatus,
+    normalize_analysis_lifecycle_status,
+)
 from ..repositories.models import StoredAgreement, StoredFlaggedClause, StoredReport
 
 SCHEMA_SQL = """
@@ -40,7 +44,7 @@ CREATE TABLE IF NOT EXISTS reports (
   source_type TEXT NOT NULL,
   source_value TEXT NOT NULL,
   raw_input_excerpt TEXT NOT NULL,
-  status TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed')),
   summary TEXT NOT NULL,
   trust_score INTEGER NOT NULL CHECK (trust_score >= 0 AND trust_score <= 100),
   model_name TEXT NOT NULL,
@@ -162,7 +166,7 @@ class PostgresReportRepository:
         source_type: str,
         source_value: str,
         raw_input_excerpt: str,
-        status: str,
+        status: AnalysisLifecycleStatus,
         summary: str,
         trust_score: int,
         model_name: str,
@@ -170,6 +174,7 @@ class PostgresReportRepository:
         completed_at: datetime | None,
     ) -> StoredReport:
         report_id = uuid4()
+        normalized_status = normalize_analysis_lifecycle_status(status)
         flagged_clause_payload = [
             {
                 "clause_type": clause.clause_type,
@@ -201,7 +206,7 @@ class PostgresReportRepository:
                         source_type,
                         source_value,
                         raw_input_excerpt,
-                        status,
+                        normalized_status.value,
                         summary,
                         trust_score,
                         model_name,
@@ -296,7 +301,7 @@ def _report_from_row(row: dict | None) -> StoredReport:
         source_type=row["source_type"],
         source_value=row["source_value"],
         raw_input_excerpt=row["raw_input_excerpt"],
-        status=row["status"],
+        status=normalize_analysis_lifecycle_status(row["status"]),
         summary=row["summary"],
         trust_score=row["trust_score"],
         model_name=row["model_name"],

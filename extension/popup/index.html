@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Terms & Conditions Analyzer</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 12px;
+        width: 320px;
+      }
+      #status {
+        margin-bottom: 8px;
+      }
+      #status.error {
+        color: #b42318;
+      }
+      #hint {
+        margin: 4px 0 8px;
+        color: #555;
+        font-size: 12px;
+      }
+      button {
+        margin-right: 4px;
+      }
+      #output {
+        white-space: pre-wrap;
+        margin-top: 8px;
+        background: #f9f9f9;
+        padding: 8px;
+        border: 1px solid #ddd;
+      }
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">Loading...</div>
+    <div id="hint" class="hidden"></div>
+    <button id="loginBtn" class="hidden">Log in</button>
+    <button id="logoutBtn" class="hidden">Log out</button>
+    <button id="analyzeBtn" class="hidden">Analyze page</button>
+    <pre id="output"></pre>
+    <script src="./index.js"></script>
+  </body>
+</html>

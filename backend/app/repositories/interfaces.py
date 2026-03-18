@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from .analysis_status import AnalysisLifecycleStatus
 from .models import StoredAgreement, StoredFlaggedClause, StoredReport
 
 
@@ -47,7 +48,7 @@ class ReportRepository(Protocol):
         source_type: str,
         source_value: str,
         raw_input_excerpt: str,
-        status: str,
+        status: AnalysisLifecycleStatus,
         summary: str,
         trust_score: int,
         model_name: str,
