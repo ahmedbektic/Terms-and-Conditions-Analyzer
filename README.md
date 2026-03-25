@@ -53,7 +53,7 @@ Windows PowerShell:
 3. Start backend:
    - `.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --env-file backend/.env --host 127.0.0.1 --port 8000`
 4. Start frontend in another terminal:
-   - `npm run -w frontend dev -- --host 127.0.0.1 --port 5173`
+   - `npm exec -w frontend dev -- --host 127.0.0.1 --port 5173`
 
 macOS/Linux:
 
