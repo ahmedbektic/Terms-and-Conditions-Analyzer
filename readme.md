@@ -22,8 +22,6 @@ This project provides:
 
 All commands below are run from the repository root:
 
-- `c:\Users\bektic\code\Terms-and-Conditions-Analyzer`
-
 ### Option A: Use Scripts (recommended)
 
 Windows PowerShell:
@@ -55,7 +53,7 @@ Windows PowerShell:
 3. Start backend:
    - `.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --env-file backend/.env --host 127.0.0.1 --port 8000`
 4. Start frontend in another terminal:
-   - `npm exec -w frontend vite -- --host 127.0.0.1 --port 5173`
+   - `npm run -w frontend dev -- --host 127.0.0.1 --port 5173`
 
 macOS/Linux:
 
@@ -68,7 +66,7 @@ macOS/Linux:
 3. Start backend:
    - `./.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --env-file backend/.env --host 127.0.0.1 --port 8000`
 4. Start frontend in another terminal:
-   - `npm exec -w frontend vite -- --host 127.0.0.1 --port 5173`
+   - `npm run -w frontend dev -- --host 127.0.0.1 --port 5173`
 
 ## Testing
 
@@ -100,6 +98,17 @@ CI currently runs:
 - Frontend: lint, build, test
 - Backend: `black --check backend` and `pytest backend/tests`
 - Extension: typecheck, test, build
+
+## Deployment
+
+Render + Cloudflare Pages deployment is wired around:
+
+- `render.yaml` for the backend blueprint
+- `backend/.env.production.example` for backend production env reference values
+- `frontend/public/_redirects` for Cloudflare Pages SPA fallback
+- `frontend/.env.production.example` for production env reference values
+
+Use `docs/render-cloudflare-deploy.md` for the exact setup steps, required environment variables, and verification flow.
 
 ## Browser Extension Local Runtime Testing (SCRUM-9)
 
@@ -183,7 +192,7 @@ Optional runtime override for debugging (service-worker console):
 
 ```javascript
 await chrome.storage.local.set({
-  api_base_url: "http://127.0.0.1:8000/api/v1",
+  api_base_url: 'http://127.0.0.1:8000/api/v1',
   extraction_min_length: 160,
 });
 ```
@@ -218,7 +227,7 @@ Key backend env vars:
 Frontend optional env var:
 
 - `VITE_API_BASE_URL`
-  - default fallback (if unset): `http://localhost:8000/api/v1`
+  - default fallback (if unset): `http://127.0.0.1:8000/api/v1`
   - set this when your backend is not at the default URL, or when you explicitly want `127.0.0.1`.
   - copy `frontend/.env.example` to `frontend/.env.local`, then edit as needed.
 - `VITE_SUPABASE_URL`
