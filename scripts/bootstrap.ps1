@@ -25,6 +25,8 @@ if (-not $SkipNpm) {
     Push-Location $repoRoot
     try {
         npm install
+        Write-Host "Installing extension npm dependencies"
+        npm install --prefix extension --no-audit --no-fund
     }
     finally {
         Pop-Location
@@ -41,3 +43,5 @@ Write-Host "Frontend run command:"
 Write-Host "npm run -w frontend dev -- --host 127.0.0.1 --port 5173"
 Write-Host "Frontend production preview command:"
 Write-Host "npm run -w frontend preview -- --host 127.0.0.1 --port 4173"
+Write-Host "Extension build command:"
+Write-Host "npm run --prefix extension build"
