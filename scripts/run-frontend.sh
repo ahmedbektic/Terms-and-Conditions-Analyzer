@@ -5,5 +5,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 cd "${REPO_ROOT}"
-npm exec -w frontend vite -- --host 127.0.0.1 --port 5173
-
+npm run -w frontend dev -- --host 127.0.0.1 --port 5173

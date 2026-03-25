@@ -436,7 +436,7 @@ CI (`.github/workflows/ci.yml`):
 - Extension: typecheck, test, build.
 
 Run/build reality check:
-- Frontend dev runtime uses Vite (`scripts/run-frontend.ps1`), but `frontend/package.json` `build` script is currently a placeholder message.
+- Frontend dev runtime uses Vite (`scripts/run-frontend.ps1`), and the frontend now has explicit `dev`, `build`, and `preview` package scripts for local and hosted workflows.
 - Extension is not part of root npm workspaces; it is built/tested via `--prefix extension` commands and its own `package-lock.json`.
 
 Important config files:

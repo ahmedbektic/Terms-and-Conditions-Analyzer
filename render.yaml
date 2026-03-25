@@ -1,0 +1,62 @@
+# Render blueprint for the FastAPI backend.
+# Secrets and deployment-specific origins stay in the Render dashboard instead
+# of source control, so this file only captures the stable service shape.
+services:
+  - type: web
+    name: terms-and-conditions-analyzer-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - backend/**
+        - render.yaml
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.16
+      - key: APP_ENV
+        value: production
+      - key: POSTGRES_AUTO_CREATE_SCHEMA
+        value: "true"
+      - key: AUTH_REQUIRE_JWT_SIGNATURE_VERIFICATION
+        value: "true"
+      - key: SUPABASE_JWT_AUDIENCE
+        value: authenticated
+      - key: ANALYSIS_AI_FALLBACK_TO_DETERMINISTIC
+        value: "true"
+      - key: ANALYSIS_EXECUTION_MODE
+        value: sync
+      - key: PERSISTENCE_BACKEND
+        sync: false
+      - key: SUPABASE_DATABASE_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_JWT_ISSUER
+        sync: false
+      - key: SUPABASE_JWT_JWKS_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: ANALYSIS_PROVIDER_MODE
+        sync: false
+      - key: ANALYSIS_AI_PROVIDER_KIND
+        sync: false
+      - key: ANALYSIS_GEMINI_API_KEY
+        sync: false
+      - key: ANALYSIS_GEMINI_MODEL
+        sync: false
+      - key: ANALYSIS_GEMINI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta
+      - key: ANALYSIS_OPENAI_COMPATIBLE_API_KEY
+        sync: false
+      - key: ANALYSIS_OPENAI_COMPATIBLE_MODEL
+        sync: false
+      - key: ANALYSIS_OPENAI_COMPATIBLE_BASE_URL
+        value: https://api.openai.com/v1
