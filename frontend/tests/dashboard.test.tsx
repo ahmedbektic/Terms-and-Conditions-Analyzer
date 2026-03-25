@@ -1,8 +1,9 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardPage } from '../src/features/dashboard/DashboardPage';
+import { MAX_TERMS_TEXT_LENGTH } from '../src/lib/security/inputValidation';
 import type {
   ReportListItemResponse,
   ReportResponse,
@@ -164,6 +165,32 @@ describe('DashboardPage', () => {
 
     await waitFor(() =>
       expect(screen.getByText('Source URL must target a public hostname.')).toBeTruthy(),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the terms character counter and blocks submission once the UI cap is exceeded', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse([]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText('No reports yet. Submit a terms agreement to create one.')).toBeTruthy(),
+    );
+
+    const termsField = screen.getByLabelText('Terms text');
+    fireEvent.change(termsField, { target: { value: 'x'.repeat(MAX_TERMS_TEXT_LENGTH + 25) } });
+
+    expect(screen.getByText('200,025 / 200,000 characters')).toBeTruthy();
+    expect(
+      screen.getByText("You've exceeded the 200,000 character limit by 25 characters."),
+    ).toBeTruthy();
+    expect(
+      screen.getByTitle("You've exceeded the 200,000 character limit by 25 characters."),
+    ).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Analyze and save report' }) as HTMLButtonElement).disabled).toBe(
+      true,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
