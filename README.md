@@ -40,6 +40,11 @@ Open the app at:
 
 - `http://127.0.0.1:5173`
 
+Bootstrap notes:
+
+- The bootstrap scripts install backend Python dependencies, root/frontend npm dependencies, and extension npm dependencies.
+- If you only need to refresh backend deps, use `./scripts/bootstrap.ps1 -SkipNpm` or `./scripts/bootstrap.sh --skip-npm`.
+
 ### Option B: Manual Commands
 
 Windows PowerShell:
@@ -50,9 +55,11 @@ Windows PowerShell:
    - `.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt`
 2. Install frontend deps:
    - `npm install`
-3. Start backend:
+3. Install extension deps:
+   - `npm install --prefix extension --no-audit --no-fund`
+4. Start backend:
    - `.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --env-file backend/.env --host 127.0.0.1 --port 8000`
-4. Start frontend in another terminal:
+5. Start frontend in another terminal:
    - `npm exec -w frontend dev -- --host 127.0.0.1 --port 5173`
 
 macOS/Linux:
@@ -63,47 +70,118 @@ macOS/Linux:
    - `./.venv/bin/python -m pip install -r backend/requirements.txt`
 2. Install frontend deps:
    - `npm install`
-3. Start backend:
+3. Install extension deps:
+   - `npm install --prefix extension --no-audit --no-fund`
+4. Start backend:
    - `./.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --env-file backend/.env --host 127.0.0.1 --port 8000`
-4. Start frontend in another terminal:
+5. Start frontend in another terminal:
    - `npm run -w frontend dev -- --host 127.0.0.1 --port 5173`
 
-## Testing
+## Unified Dev Helpers
 
-Run all commands from repository root:
+Use these wrappers when you want one stable entrypoint instead of remembering individual commands.
 
-- `py -3.10 -m pytest backend/tests -q`
-- `py -3.10 -m black --check backend`
-- `npm run test:frontend`
-- `npm run -w frontend test -- tests/auth.test.tsx` (single frontend test file)
+PowerShell:
 
-## Code Quality Commands
+- `./scripts/dev.ps1 help`
+- `./scripts/dev.ps1 run backend`
+- `./scripts/dev.ps1 run frontend`
+- `./scripts/dev.ps1 run preview`
+- `./scripts/dev.ps1 run docker`
+- `./scripts/dev.ps1 rebuild backend`
+- `./scripts/dev.ps1 rebuild frontend`
+- `./scripts/dev.ps1 rebuild extension`
+- `./scripts/dev.ps1 rebuild all`
+- `./scripts/dev.ps1 rebuild docker`
 
-Use these before opening a PR to match CI behavior.
+Git Bash / macOS / Linux:
 
-Backend (Python):
+- `./scripts/dev.sh help`
+- `./scripts/dev.sh run backend`
+- `./scripts/dev.sh run frontend`
+- `./scripts/dev.sh run preview`
+- `./scripts/dev.sh run docker`
+- `./scripts/dev.sh rebuild backend`
+- `./scripts/dev.sh rebuild frontend`
+- `./scripts/dev.sh rebuild extension`
+- `./scripts/dev.sh rebuild all`
+- `./scripts/dev.sh rebuild docker`
 
-- Auto-format: `py -3.10 -m black backend`
-- Format check only: `py -3.10 -m black --check backend`
-- Run tests: `py -3.10 -m pytest backend/tests -q`
+## Command Reference
 
-Frontend (React/TypeScript):
+Assume Git Bash on Windows unless noted otherwise. Run commands from the repository root.
 
-- Lint check: `npm run lint:frontend`
-- Lint autofix: `npm run -w frontend lint -- --fix`
-- Run tests: `npm run test:frontend`
+### Formatting and Linting
+
+- Backend format:
+  - `./.venv/Scripts/python.exe -m black backend`
+- Backend format check:
+  - `./.venv/Scripts/python.exe -m black --check backend`
+- Frontend lint:
+  - `npm run lint:frontend`
+- Extension typecheck:
+  - `npm run typecheck:extension`
+
+### Tests
+
+- Backend test suite:
+  - `./.venv/Scripts/python.exe -m pytest backend/tests -q`
+- Frontend test suite:
+  - `npm run test:frontend`
+- Extension test suite:
+  - `npm run test:extension`
+- Full repo verification sequence:
+  - `./.venv/Scripts/python.exe -m black --check backend`
+  - `npm run lint:frontend`
+  - `./.venv/Scripts/python.exe -m pytest backend/tests -q`
+  - `npm run test:frontend`
+  - `npm run typecheck:extension`
+  - `npm run test:extension`
+  - `docker compose config`
+
+### Builds
+
+- Frontend build:
+  - `npm run build:frontend`
+- Frontend local production preview:
+  - `npm run preview:frontend`
+- Extension build:
+  - `npm run build:extension`
+- Backend local build-equivalent smoke check:
+  - `./.venv/Scripts/python.exe -m compileall backend/app`
+- Docker builds:
+  - `docker compose build backend`
+  - `docker compose build frontend`
+  - `docker compose build backend frontend`
+
+### Local Deployment
+
+- Backend only:
+  - `./scripts/dev.sh run backend`
+- Frontend only:
+  - `./scripts/dev.sh run frontend`
+- Frontend preview against local assets/worker runtime:
+  - `./scripts/dev.sh run preview`
+- Dockerized local frontend + backend:
+  - `./scripts/dev.sh run docker`
+- Direct Docker commands:
+  - `docker compose up`
+  - `docker compose up --build`
+  - `docker compose down`
 
 CI currently runs:
 
+- Tooling/infrastructure: `docker compose config`, Bash helper syntax check, PowerShell helper smoke run
 - Frontend: lint, build, test
 - Backend: `black --check backend` and `pytest backend/tests`
 - Extension: typecheck, test, build
 
 ## Deployment
 
-Render + Cloudflare Pages deployment is wired around:
+Render + Cloudflare Workers deployment is wired around:
 
 - `render.yaml` for the backend blueprint
+- `frontend/wrangler.jsonc` plus `frontend/worker/index.ts` for the Cloudflare edge proxy/static frontend
 - `backend/.env.production.example` for backend production env reference values
 - `frontend/.env.production.example` for production env reference values
 
@@ -241,7 +319,8 @@ Backend auth/runtime env vars:
 - `SUPABASE_JWT_SECRET` (alternative to JWKS)
 - `ANALYSIS_PROVIDER_MODE` (`deterministic` default, `ai` for AI-backed mode)
 - `ANALYSIS_AI_PROVIDER_KIND` (`gemini` default, or `openai_compatible`)
-- `ANALYSIS_GEMINI_API_KEY` and `ANALYSIS_GEMINI_MODEL` (Gemini mode)
+- `ANALYSIS_GEMINI_API_KEY` and `ANALYSIS_GEMINI_MODEL` (Gemini mode, `gemini-2.5-flash` recommended)
+- `ANALYSIS_GEMINI_MAX_INPUT_TOKENS` and `ANALYSIS_GEMINI_ESTIMATED_CHARS_PER_TOKEN` (Gemini prompt budget guard)
 - `ANALYSIS_OPENAI_COMPATIBLE_API_KEY` and `ANALYSIS_OPENAI_COMPATIBLE_MODEL` (OpenAI-compatible mode)
 - `ANALYSIS_AI_FALLBACK_TO_DETERMINISTIC` (`true` recommended)
 - `ANALYSIS_EXECUTION_MODE` (`sync` active; seam for future queued/worker mode)

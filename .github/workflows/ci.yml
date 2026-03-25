@@ -7,6 +7,22 @@ on:
     branches: [main, master, develop]
 
 jobs:
+  tooling:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Docker compose file
+        run: docker compose config
+
+      - name: Validate Bash dev helper syntax
+        run: bash -n scripts/dev.sh
+
+      - name: Validate PowerShell dev helper
+        shell: pwsh
+        run: ./scripts/dev.ps1 help
+
   frontend:
     runs-on: ubuntu-latest
     steps:

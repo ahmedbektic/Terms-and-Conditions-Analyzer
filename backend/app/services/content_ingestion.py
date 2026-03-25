@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from ..core.input_validation import normalize_untrusted_text, validate_external_source_url
 from .extraction_contracts import (
     ExtractionIngestionRequest,
     ExtractionIngestionResult,
@@ -76,12 +77,13 @@ class HttpxUrlContentFetcher:
     def fetch(self, *, url: str) -> UrlFetchPayload:
         """Fetch URL content and return body text plus response content type."""
 
-        parsed = urlparse(url)
+        safe_url = validate_external_source_url(url)
+        parsed = urlparse(safe_url)
         if parsed.scheme not in {"http", "https"}:
             raise ContentIngestionError("URL ingestion supports only http/https sources.")
 
         response = httpx.get(
-            url,
+            safe_url,
             follow_redirects=True,
             timeout=self._timeout_seconds,
             headers={
@@ -121,7 +123,7 @@ class SimpleFetchedContentExtractor:
         return self._normalize_text(unescape(without_tags))
 
     def _normalize_text(self, value: str) -> str:
-        return re.sub(r"\s+", " ", value).strip()
+        return normalize_untrusted_text(value)
 
     def _looks_like_html(self, text: str) -> bool:
         lowered = text.lower()
