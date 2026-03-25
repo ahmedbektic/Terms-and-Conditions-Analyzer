@@ -41,14 +41,20 @@ Set these analysis variables only if you want hosted AI-backed analysis instead 
 
 ## Frontend on Cloudflare Pages
 
-Use the repository root as the Pages root directory so Pages builds against the workspace lockfile.
+Use `frontend` as the Pages root directory. This repo has a root `pyproject.toml`, and if Pages builds from the repository root it will auto-detect Python and try `pip install .`, which breaks the frontend deploy.
 
 Recommended Pages settings:
 
 - Framework preset: `React (Vite)` or `None`
-- Root directory: repository root
-- Build command: `npm ci && npm run build:frontend`
-- Build output directory: `frontend/dist`
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Build output directory: `dist`
+
+Important:
+
+- Do not use the repo-root workspace command `npm run build:frontend` once the Pages root is `frontend`.
+- From inside `frontend`, the available script is `npm run build`.
+- If Cloudflare prefilled an old build command, overwrite it manually.
 
 Set these Cloudflare Pages environment variables:
 
@@ -57,7 +63,7 @@ Set these Cloudflare Pages environment variables:
 - `VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>`
 - Optional: `NODE_VERSION=22.16.0` or any version compatible with the repo's `>=20.19.0` requirement
 
-The frontend includes `frontend/public/_redirects` with `/* /index.html 200`, so direct navigation stays on the SPA entrypoint after deploy.
+Do not add a `_redirects` file for this Cloudflare deploy path. Current Wrangler/Workers SPA deploys already use `assets.not_found_handling = "single-page-application"`, and combining that with `/* /index.html 200` causes Cloudflare validation error `10021` for an infinite redirect loop.
 
 ## Local Production Preview
 
@@ -79,6 +85,7 @@ Before calling the deployment done, verify all of this:
 - `VITE_API_BASE_URL` points at the Render backend, not localhost
 - Render `CORS_ALLOWED_ORIGINS` includes every deployed frontend origin
 - Supabase Auth redirect allow-list includes the Cloudflare Pages URL and any custom domain
+- No `_redirects` file is being uploaded alongside a Wrangler SPA deploy
 
 ## Secret Handling
 
