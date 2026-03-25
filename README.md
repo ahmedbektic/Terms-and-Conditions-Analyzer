@@ -105,7 +105,6 @@ Render + Cloudflare Pages deployment is wired around:
 
 - `render.yaml` for the backend blueprint
 - `backend/.env.production.example` for backend production env reference values
-- `frontend/public/_redirects` for Cloudflare Pages SPA fallback
 - `frontend/.env.production.example` for production env reference values
 
 Use `docs/render-cloudflare-deploy.md` for the exact setup steps, required environment variables, and verification flow.
