@@ -102,6 +102,7 @@ export function LoginScreen({
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
+              maxLength={320}
               required
             />
           </label>
@@ -113,6 +114,8 @@ export function LoginScreen({
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete={modeCopy.passwordAutocomplete}
+              minLength={8}
+              maxLength={128}
               required
             />
           </label>

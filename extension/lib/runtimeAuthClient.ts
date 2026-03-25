@@ -7,6 +7,15 @@ import {
   AUTH_PROVIDER_GOOGLE,
   normalizeProviderSignInError,
 } from "../../frontend/src/lib/auth/providerErrors";
+import {
+  AuthAttemptThrottle,
+  type AuthAttemptThrottleState,
+  type AuthAttemptThrottleStore,
+  PASSWORD_SIGN_IN_ATTEMPT_POLICY,
+  PASSWORD_SIGN_UP_ATTEMPT_POLICY,
+  normalizeAuthAttemptIdentifier,
+} from "../../frontend/src/lib/security/authAttemptThrottle";
+import { sanitizePasswordCredentials } from "../../frontend/src/lib/security/inputValidation";
 import { resolveSupabaseAuthConfig } from "./runtimeAuth/config";
 import { launchGooglePkceOAuthFlow } from "./runtimeAuth/oauthGoogle";
 import { extractSignUpTokenPayload, isExpired } from "./runtimeAuth/sessionCodec";
@@ -38,6 +47,17 @@ import type {
  * - authenticated backend calls return 401 and should trigger one refresh retry
  */
 export class ExtensionRuntimeAuthClient implements AuthClient {
+  private readonly signInAttemptThrottle = new AuthAttemptThrottle({
+    policy: PASSWORD_SIGN_IN_ATTEMPT_POLICY,
+    store: createChromeStorageThrottleStore(),
+    keyPrefix: "extension_auth_attempts",
+  });
+  private readonly signUpAttemptThrottle = new AuthAttemptThrottle({
+    policy: PASSWORD_SIGN_UP_ATTEMPT_POLICY,
+    store: createChromeStorageThrottleStore(),
+    keyPrefix: "extension_auth_attempts",
+  });
+
   async getSession(): Promise<AuthenticatedSession | null> {
     const session = await readStoredSession();
     if (!session) {
@@ -59,7 +79,11 @@ export class ExtensionRuntimeAuthClient implements AuthClient {
 
   async signInWithPassword(credentials: PasswordCredentials): Promise<void> {
     const config = await resolveSupabaseAuthConfig();
-    const normalizedCredentials = normalizeCredentials(credentials);
+    const normalizedCredentials = normalizeCredentials(
+      sanitizePasswordCredentials(credentials),
+    );
+    const normalizedEmail = normalizeAuthAttemptIdentifier(normalizedCredentials.email);
+    await this.signInAttemptThrottle.registerAttempt(normalizedEmail);
 
     const tokenPayload = await requestSupabaseJson<SupabaseTokenPayload>({
       config,
@@ -70,11 +94,17 @@ export class ExtensionRuntimeAuthClient implements AuthClient {
     });
 
     await persistSessionFromTokenPayload(tokenPayload);
+    await this.signInAttemptThrottle.clear(normalizedEmail);
   }
 
   async signUpWithPassword(credentials: PasswordCredentials): Promise<void> {
     const config = await resolveSupabaseAuthConfig();
-    const normalizedCredentials = normalizeCredentials(credentials);
+    const normalizedCredentials = normalizeCredentials(
+      sanitizePasswordCredentials(credentials),
+    );
+    await this.signUpAttemptThrottle.registerAttempt(
+      normalizeAuthAttemptIdentifier(normalizedCredentials.email),
+    );
 
     const signUpPayload = await requestSupabaseJson<SupabaseSignUpPayload>({
       config,
@@ -172,4 +202,25 @@ function toActionableGoogleSignInMessage(normalizedMessage: string, rawMessage: 
     return "Google sign-in failed because Supabase rejected the OAuth callback. Verify extension redirect allow-list and use PKCE callback URL exactly: https://<extension-id>.chromiumapp.org/supabase-auth.";
   }
   return normalizedMessage;
+}
+
+function createChromeStorageThrottleStore(): AuthAttemptThrottleStore {
+  return {
+    async read(key: string): Promise<AuthAttemptThrottleState | null> {
+      const stored = await chrome.storage.local.get(key);
+      const candidate = stored[key];
+      if (!candidate || typeof candidate !== "object") {
+        return null;
+      }
+
+      const state = candidate as AuthAttemptThrottleState;
+      return Array.isArray(state.attemptTimestamps) ? state : null;
+    },
+    async write(key: string, state: AuthAttemptThrottleState): Promise<void> {
+      await chrome.storage.local.set({ [key]: state });
+    },
+    async remove(key: string): Promise<void> {
+      await chrome.storage.local.remove(key);
+    },
+  };
 }

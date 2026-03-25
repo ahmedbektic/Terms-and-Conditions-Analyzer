@@ -13,7 +13,12 @@ from app.repositories.in_memory import (
     InMemoryReportRepository,
     InMemoryStorage,
 )
-from app.services.ai_provider import DeterministicAnalysisProvider
+from app.services.ai_provider import (
+    AnalysisProvider,
+    AnalysisProviderRuntimeConfig,
+    DeterministicAnalysisProvider,
+    build_analysis_provider,
+)
 from app.services.analysis_execution import SyncAnalysisExecutionStrategy
 from app.services.analysis_service import AnalysisOrchestrationService
 from app.services.content_ingestion import ContentIngestionService, UrlFetchPayload
@@ -73,6 +78,7 @@ class _StaticUrlFetcher:
 def _build_analysis_service_for_test(
     *,
     content_ingestion_service: ContentIngestionService | None = None,
+    analysis_provider: AnalysisProvider | None = None,
 ) -> AnalysisOrchestrationService:
     storage = InMemoryStorage()
     agreement_repository = InMemoryAgreementRepository(storage)
@@ -82,7 +88,7 @@ def _build_analysis_service_for_test(
         agreement_repository=agreement_repository,
         report_repository=report_repository,
         analysis_execution_strategy=SyncAnalysisExecutionStrategy(
-            analysis_provider=DeterministicAnalysisProvider(),
+            analysis_provider=analysis_provider or DeterministicAnalysisProvider(),
             report_repository=report_repository,
         ),
         submission_preparation_service=SubmissionPreparationService(
@@ -212,6 +218,28 @@ def test_submit_analyze_rejects_missing_input(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_submit_analyze_rejects_extra_fields_and_non_string_types(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/reports/analyze",
+        json={
+            "title": 123,
+            "terms_text": "These terms include arbitration and automatic renewal clauses.",
+            "unexpected": "field",
+        },
+        headers=_auth_headers("user-a"),
+    )
+    assert response.status_code == 422
+
+
+def test_submit_analyze_rejects_private_source_urls(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/reports/analyze",
+        json={"source_url": "http://127.0.0.1/internal-terms"},
+        headers=_auth_headers("user-a"),
+    )
+    assert response.status_code == 422
+
+
 def test_get_report_returns_404_when_report_not_found(client: TestClient) -> None:
     response = client.get(
         "/api/v1/reports/11111111-1111-1111-1111-111111111111",
@@ -288,3 +316,57 @@ def test_submit_analyze_url_only_uses_ingestion_fetch_path_when_available(
     _assert_report_response_contract(report)
     assert report["source_type"] == "url"
     assert "could not be fetched" not in report["raw_input_excerpt"].lower()
+
+
+def test_submit_analyze_sanitizes_html_like_text_input(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/reports/analyze",
+        json={
+            "title": "<script>alert(1)</script> Demo Terms",
+            "terms_text": (
+                "<script>alert(1)</script><section>These terms include arbitration, "
+                "automatic renewal, and unilateral change rights.</section>"
+            ),
+        },
+        headers=_auth_headers("user-a"),
+    )
+
+    assert response.status_code == 201
+    report = response.json()
+    assert report["source_value"] == "Demo Terms"
+    assert "<script>" not in report["raw_input_excerpt"].lower()
+    assert "alert(1)" not in report["raw_input_excerpt"].lower()
+
+
+def test_submit_analyze_rejects_terms_that_exceed_gemini_prompt_budget(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reset_demo_storage()
+    test_service = _build_analysis_service_for_test(
+        analysis_provider=build_analysis_provider(
+            config=AnalysisProviderRuntimeConfig(
+                mode="ai",
+                ai_provider_kind="gemini",
+                gemini_api_key="test-key",
+                gemini_model_name="gemini-2.5-flash",
+                ai_fallback_to_deterministic=False,
+                gemini_max_input_tokens=120,
+                gemini_estimated_chars_per_token=1,
+            )
+        )
+    )
+    monkeypatch.setattr(deps, "_analysis_service", test_service)
+
+    response = client.post(
+        "/api/v1/reports/analyze",
+        json={
+            "terms_text": (
+                "These terms include arbitration, automatic renewal, broad data sharing, "
+                "and unilateral change rights. " * 5
+            )
+        },
+        headers=_auth_headers("user-a"),
+    )
+
+    assert response.status_code == 422
+    assert "too large for gemini analysis" in response.json()["detail"].lower()

@@ -26,6 +26,7 @@ from uuid import UUID
 
 from ..repositories.interfaces import AgreementRepository, ReportRepository
 from ..repositories.models import StoredAgreement, StoredReport
+from .ai_provider import AnalysisProviderInputError
 from .analysis_execution import AnalysisExecutionRequest, AnalysisExecutionStrategy
 from .extraction_contracts import ExtractionIngestionResult
 from .submission_preparation import (
@@ -199,11 +200,14 @@ class AnalysisOrchestrationService:
         details and persistence timing.
         """
 
-        return self._analysis_execution_strategy.execute(
-            request=AnalysisExecutionRequest(
-                subject_type=subject.subject_type,
-                subject_id=subject.subject_id,
-                agreement=agreement,
-                ingestion_result=ingestion_result,
+        try:
+            return self._analysis_execution_strategy.execute(
+                request=AnalysisExecutionRequest(
+                    subject_type=subject.subject_type,
+                    subject_id=subject.subject_id,
+                    agreement=agreement,
+                    ingestion_result=ingestion_result,
+                )
             )
-        )
+        except AnalysisProviderInputError as error:
+            raise InvalidSubmissionError(str(error)) from error

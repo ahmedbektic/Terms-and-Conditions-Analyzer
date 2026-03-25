@@ -4,6 +4,7 @@ import pytest
 from app.services.ai_provider import (
     AnalysisInput,
     AnalysisInputMetadata,
+    AnalysisProviderInputError,
     AnalysisProviderInvocationError,
     AnalysisProviderRuntimeConfig,
     DeterministicAnalysisProvider,
@@ -154,6 +155,27 @@ def test_fallback_provider_uses_deterministic_when_primary_fails() -> None:
     assert any("fallback" in warning.lower() for warning in result.execution_metadata.warnings)
 
 
+def test_fallback_provider_does_not_mask_provider_input_errors() -> None:
+    class _TooLargeProvider:
+        def analyze(self, *, analysis_input: AnalysisInput):
+            _ = analysis_input
+            raise AnalysisProviderInputError("submission too large")
+
+    provider = FallbackAnalysisProvider(
+        primary=_TooLargeProvider(),
+        fallback=DeterministicAnalysisProvider(),
+    )
+
+    with pytest.raises(AnalysisProviderInputError):
+        provider.analyze(
+            analysis_input=AnalysisInput(
+                source_type="text",
+                source_value="manual_text_submission",
+                normalized_text="These terms include automatic renewal and arbitration.",
+            )
+        )
+
+
 def test_provider_builder_fallback_handles_runtime_ai_invocation_failure(
     monkeypatch,
 ) -> None:
@@ -207,5 +229,33 @@ def test_provider_builder_without_fallback_raises_on_runtime_ai_failure(
                 source_type="text",
                 source_value="manual_text_submission",
                 normalized_text="These terms include automatic renewal and arbitration.",
+            )
+        )
+
+
+def test_gemini_provider_rejects_oversized_prompt_before_http_call(
+    monkeypatch,
+) -> None:
+    def _unexpected_http_post(*_args, **_kwargs):
+        raise AssertionError("Gemini HTTP invocation should not run for oversized prompts.")
+
+    monkeypatch.setattr("app.services.ai_provider.httpx.post", _unexpected_http_post)
+
+    provider = GeminiAnalysisProvider(
+        api_key="test-key",
+        model_name="gemini-2.5-flash",
+        base_url="https://generativelanguage.googleapis.com/v1beta",
+        timeout_seconds=20,
+        temperature=0.1,
+        max_input_tokens=120,
+        estimated_chars_per_token=1,
+    )
+
+    with pytest.raises(AnalysisProviderInputError):
+        provider.analyze(
+            analysis_input=AnalysisInput(
+                source_type="text",
+                source_value="manual_text_submission",
+                normalized_text=("These terms include arbitration and automatic renewal. " * 6),
             )
         )

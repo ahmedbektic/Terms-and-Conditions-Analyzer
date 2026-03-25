@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 
+import { sanitizeReportAnalyzeInput } from '../../../lib/security/inputValidation';
 import type { DashboardAnalysisInput } from '../types';
 
 interface AgreementSubmissionFormProps {
@@ -16,23 +17,19 @@ export function AgreementSubmissionForm({ onSubmit, isSubmitting }: AgreementSub
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-
-    const normalizedSourceUrl = sourceUrl.trim();
-    const normalizedTermsText = termsText.trim();
-
-    if (!normalizedSourceUrl && !normalizedTermsText) {
-      setFormError('Provide either a source URL or terms text.');
-      return;
+    try {
+      const sanitizedInput = sanitizeReportAnalyzeInput({
+        title: title || null,
+        source_url: sourceUrl || null,
+        // Backend contracts expect ISO datetime strings.
+        agreed_at: agreedAt ? new Date(agreedAt).toISOString() : null,
+        terms_text: termsText || null,
+      });
+      setFormError(null);
+      await onSubmit(sanitizedInput);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Submission input is invalid.');
     }
-
-    setFormError(null);
-    await onSubmit({
-      title: title.trim() || null,
-      source_url: normalizedSourceUrl || null,
-      // Backend contracts expect ISO datetime strings.
-      agreed_at: agreedAt ? new Date(agreedAt).toISOString() : null,
-      terms_text: normalizedTermsText || null,
-    });
   };
 
   return (
@@ -51,6 +48,7 @@ export function AgreementSubmissionForm({ onSubmit, isSubmitting }: AgreementSub
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Example: Acme Cloud Terms of Service"
+            maxLength={200}
           />
         </label>
         <label className="field field-compact">
@@ -60,6 +58,7 @@ export function AgreementSubmissionForm({ onSubmit, isSubmitting }: AgreementSub
             value={sourceUrl}
             onChange={(event) => setSourceUrl(event.target.value)}
             placeholder="https://example.com/terms"
+            maxLength={2048}
           />
         </label>
         <label className="field field-compact">
@@ -77,6 +76,7 @@ export function AgreementSubmissionForm({ onSubmit, isSubmitting }: AgreementSub
             onChange={(event) => setTermsText(event.target.value)}
             placeholder="Paste terms and conditions text..."
             rows={9}
+            maxLength={200000}
           />
         </label>
         <p className="field-help field-full">Provide at least one: source URL or terms text.</p>

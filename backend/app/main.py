@@ -7,8 +7,11 @@ in route dependencies and services.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from .api.deps import get_request_rate_limiter
 from .api.router import api_router
+from .security import RateLimitExceededError
 from .core.config import settings
 
 
@@ -27,6 +30,31 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    request_rate_limiter = get_request_rate_limiter()
+
+    @app.middleware("http")
+    async def apply_request_rate_limits(request, call_next):
+        try:
+            evaluations = request_rate_limiter.evaluate(request)
+        except RateLimitExceededError as error:
+            response = JSONResponse(
+                status_code=429,
+                content={
+                    "detail": error.detail,
+                    "policy": error.evaluation.policy.name,
+                    "retry_after_seconds": error.evaluation.retry_after_seconds,
+                },
+            )
+            request_rate_limiter.apply_headers(
+                response=response,
+                evaluations=[error.evaluation],
+            )
+            return response
+
+        response = await call_next(request)
+        request_rate_limiter.apply_headers(response=response, evaluations=evaluations)
+        return response
+
     app.include_router(api_router, prefix="/api/v1")
 
     @app.get("/health", tags=["health"])

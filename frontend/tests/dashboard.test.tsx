@@ -19,8 +19,8 @@ function jsonResponse(payload: unknown, status = 200): Response {
 
 function buildReport(overrides?: Partial<ReportResponse>): ReportResponse {
   return {
-    id: 'report-1',
-    agreement_id: 'agreement-1',
+    id: '00000000-0000-4000-8000-000000000001',
+    agreement_id: '10000000-0000-4000-8000-000000000001',
     source_type: 'url',
     source_value: 'https://example.com/terms',
     raw_input_excerpt: 'Sample excerpt for testing',
@@ -44,8 +44,8 @@ function buildReport(overrides?: Partial<ReportResponse>): ReportResponse {
 
 function buildListItem(overrides?: Partial<ReportListItemResponse>): ReportListItemResponse {
   return {
-    id: 'report-1',
-    agreement_id: 'agreement-1',
+    id: '00000000-0000-4000-8000-000000000001',
+    agreement_id: '10000000-0000-4000-8000-000000000001',
     source_type: 'url',
     source_value: 'https://example.com/terms',
     status: 'completed',
@@ -144,16 +144,40 @@ describe('DashboardPage', () => {
     );
   });
 
+  it('blocks unsafe source URLs before they are sent to the API', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse([]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText('No reports yet. Submit a terms agreement to create one.')).toBeTruthy(),
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Source URL'), 'http://localhost/private-terms');
+    await user.type(
+      screen.getByLabelText('Terms text'),
+      'These terms include arbitration and automatic renewal clauses.',
+    );
+    await user.click(screen.getByRole('button', { name: 'Analyze and save report' }));
+
+    await waitFor(() =>
+      expect(screen.getByText('Source URL must target a public hostname.')).toBeTruthy(),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('renders saved report history and allows selecting a prior report', async () => {
     const reportOne = buildReport({
-      id: 'report-1',
+      id: '00000000-0000-4000-8000-000000000001',
       summary: 'First summary',
       trust_score: 72,
       source_value: 'https://service-one.example/terms',
       flagged_clauses: [],
     });
     const reportTwo = buildReport({
-      id: 'report-2',
+      id: '00000000-0000-4000-8000-000000000002',
       summary: 'Second summary with risk',
       trust_score: 41,
       source_value: 'https://service-two.example/terms',
@@ -174,21 +198,21 @@ describe('DashboardPage', () => {
       if (url.endsWith('/reports') && method === 'GET') {
         return jsonResponse([
           buildListItem({
-            id: 'report-1',
+            id: '00000000-0000-4000-8000-000000000001',
             source_value: reportOne.source_value,
             trust_score: reportOne.trust_score,
           }),
           buildListItem({
-            id: 'report-2',
+            id: '00000000-0000-4000-8000-000000000002',
             source_value: reportTwo.source_value,
             trust_score: reportTwo.trust_score,
           }),
         ]);
       }
-      if (url.endsWith('/reports/report-2') && method === 'GET') {
+      if (url.endsWith('/reports/00000000-0000-4000-8000-000000000002') && method === 'GET') {
         return jsonResponse(reportTwo);
       }
-      if (url.endsWith('/reports/report-1') && method === 'GET') {
+      if (url.endsWith('/reports/00000000-0000-4000-8000-000000000001') && method === 'GET') {
         return jsonResponse(reportOne);
       }
       throw new Error(`Unexpected request: ${method} ${url}`);
@@ -203,7 +227,9 @@ describe('DashboardPage', () => {
     expect(screen.getByText('https://service-two.example/terms')).toBeTruthy();
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /URL https:\/\/service-two\.example\/terms/i }));
+    await user.click(
+      screen.getByRole('button', { name: /URL https:\/\/service-two\.example\/terms/i }),
+    );
 
     await waitFor(() => expect(screen.getByText('Trust score: 41 / 100')).toBeTruthy());
     expect(screen.getByText('Second summary with risk')).toBeTruthy();

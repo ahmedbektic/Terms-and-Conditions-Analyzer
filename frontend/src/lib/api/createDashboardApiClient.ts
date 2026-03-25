@@ -12,6 +12,7 @@ interface CreateDashboardApiClientOptions {
 }
 
 const LOCAL_API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
+const EDGE_PROXY_API_BASE_URL = '/api/v1';
 
 function isLocalHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
@@ -24,10 +25,15 @@ function resolveDashboardApiBaseUrl(): string {
     return trimmedConfigured;
   }
 
-  if (typeof window !== 'undefined' && !isLocalHostname(window.location.hostname)) {
+  if (typeof window !== 'undefined') {
+    if (isLocalHostname(window.location.hostname)) {
+      return LOCAL_API_BASE_URL;
+    }
+
     console.warn(
-      'VITE_API_BASE_URL is not set. Falling back to the local backend URL. Set VITE_API_BASE_URL in Cloudflare Pages for deployed builds.',
+      'VITE_API_BASE_URL is not set. Falling back to the same-origin Cloudflare edge proxy at /api/v1.',
     );
+    return EDGE_PROXY_API_BASE_URL;
   }
 
   return LOCAL_API_BASE_URL;

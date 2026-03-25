@@ -147,6 +147,60 @@ describe("extension runtime auth client", () => {
     expect(localStorageState.auth_refresh_token).toBe("password-refresh-token");
   });
 
+  it("blocks repeated password sign-in attempts before calling Supabase again", async () => {
+    installChromeMocks({
+      auth_supabase_url: SUPABASE_URL,
+      auth_supabase_anon_key: SUPABASE_ANON_KEY,
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/auth/v1/token?grant_type=password")) {
+        return jsonResponse({ message: "Invalid login credentials." }, 400);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ExtensionRuntimeAuthClient();
+    const credentials = {
+      email: "password-user@example.com",
+      password: "wrong-password",
+    };
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(client.signInWithPassword(credentials)).rejects.toThrow(
+        "Invalid login credentials.",
+      );
+    }
+
+    await expect(client.signInWithPassword(credentials)).rejects.toThrow(
+      "Too many sign-in attempts.",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it("rejects invalid password credentials before calling Supabase", async () => {
+    installChromeMocks({
+      auth_supabase_url: SUPABASE_URL,
+      auth_supabase_anon_key: SUPABASE_ANON_KEY,
+    });
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ExtensionRuntimeAuthClient();
+
+    await expect(
+      client.signInWithPassword({
+        email: "bad-email",
+        password: "short",
+      }),
+    ).rejects.toThrow("Email address is invalid.");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("clears local auth_session on signOut even if provider logout fails", async () => {
     const { localStorageState } = installChromeMocks({
       auth_supabase_url: SUPABASE_URL,

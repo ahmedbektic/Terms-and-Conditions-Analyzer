@@ -5,7 +5,7 @@
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run --environment jsdom"
+    "test": "vitest run --environment jsdom --pool=threads"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.30",
