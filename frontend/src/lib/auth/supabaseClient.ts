@@ -23,6 +23,14 @@ import {
   AUTH_PROVIDER_GOOGLE,
   normalizeProviderSignInError,
 } from './providerErrors';
+import {
+  AuthAttemptThrottle,
+  PASSWORD_SIGN_IN_ATTEMPT_POLICY,
+  PASSWORD_SIGN_UP_ATTEMPT_POLICY,
+  createBrowserLocalStorageThrottleStore,
+  normalizeAuthAttemptIdentifier,
+} from '../security/authAttemptThrottle';
+import { sanitizePasswordCredentials } from '../security/inputValidation';
 
 function readEnvValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -83,9 +91,22 @@ class MissingSupabaseConfigurationClient implements AuthClient {
  */
 class SupabaseBrowserAuthClient implements AuthClient {
   private readonly supabaseClient: SupabaseClient;
+  private readonly signInAttemptThrottle: AuthAttemptThrottle;
+  private readonly signUpAttemptThrottle: AuthAttemptThrottle;
 
   constructor(supabaseClient: SupabaseClient) {
     this.supabaseClient = supabaseClient;
+    const throttleStore = createBrowserLocalStorageThrottleStore();
+    this.signInAttemptThrottle = new AuthAttemptThrottle({
+      policy: PASSWORD_SIGN_IN_ATTEMPT_POLICY,
+      store: throttleStore,
+      keyPrefix: 'web_auth_attempts',
+    });
+    this.signUpAttemptThrottle = new AuthAttemptThrottle({
+      policy: PASSWORD_SIGN_UP_ATTEMPT_POLICY,
+      store: throttleStore,
+      keyPrefix: 'web_auth_attempts',
+    });
   }
 
   async getSession(): Promise<AuthenticatedSession | null> {
@@ -112,19 +133,27 @@ class SupabaseBrowserAuthClient implements AuthClient {
   }
 
   async signInWithPassword(credentials: PasswordCredentials): Promise<void> {
+    const normalizedCredentials = sanitizePasswordCredentials(credentials);
+    const normalizedEmail = normalizeAuthAttemptIdentifier(normalizedCredentials.email);
+    await this.signInAttemptThrottle.registerAttempt(normalizedEmail);
     const { error } = await this.supabaseClient.auth.signInWithPassword({
-      email: credentials.email,
-      password: credentials.password,
+      email: normalizedCredentials.email,
+      password: normalizedCredentials.password,
     });
     if (error) {
       throw new Error(error.message);
     }
+    await this.signInAttemptThrottle.clear(normalizedEmail);
   }
 
   async signUpWithPassword(credentials: PasswordCredentials): Promise<void> {
+    const normalizedCredentials = sanitizePasswordCredentials(credentials);
+    await this.signUpAttemptThrottle.registerAttempt(
+      normalizeAuthAttemptIdentifier(normalizedCredentials.email),
+    );
     const { error } = await this.supabaseClient.auth.signUp({
-      email: credentials.email,
-      password: credentials.password,
+      email: normalizedCredentials.email,
+      password: normalizedCredentials.password,
     });
     if (error) {
       throw new Error(error.message);

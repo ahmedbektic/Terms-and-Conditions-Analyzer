@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import json
 import logging
+from math import ceil
 import re
 from typing import Callable, Mapping, Protocol
 
@@ -27,6 +28,7 @@ __all__ = [
     "AnalysisInputMetadata",
     "AnalysisProviderRuntimeConfig",
     "AnalysisProviderConfigurationError",
+    "AnalysisProviderInputError",
     "AnalysisProviderInvocationError",
     "AnalysisProvider",
     "DeterministicAnalysisProvider",
@@ -40,6 +42,14 @@ __all__ = [
 ]
 
 LOGGER = logging.getLogger(__name__)
+
+# Gemini 2.5 Flash currently advertises a 1,048,576-token context window, but
+# the free Gemini API tier exposes a stricter 250,000 input-tokens-per-minute
+# budget. The default runtime limit below intentionally follows that tighter
+# free-tier budget so one request cannot exceed the available input allowance.
+DEFAULT_GEMINI_25_FLASH_MODEL_NAME = "gemini-2.5-flash"
+DEFAULT_GEMINI_25_FLASH_FREE_TIER_INPUT_TOKEN_LIMIT = 250_000
+DEFAULT_GEMINI_ESTIMATED_CHARS_PER_TOKEN = 3
 
 
 @dataclass(frozen=True)
@@ -127,12 +137,18 @@ class AnalysisProviderRuntimeConfig:
     openai_compatible_model_name: str = ""
     openai_compatible_base_url: str = "https://api.openai.com/v1"
     gemini_api_key: str = ""
-    gemini_model_name: str = "gemini-2.0-flash"
+    gemini_model_name: str = DEFAULT_GEMINI_25_FLASH_MODEL_NAME
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_max_input_tokens: int = DEFAULT_GEMINI_25_FLASH_FREE_TIER_INPUT_TOKEN_LIMIT
+    gemini_estimated_chars_per_token: int = DEFAULT_GEMINI_ESTIMATED_CHARS_PER_TOKEN
 
 
 class AnalysisProviderConfigurationError(Exception):
     """Raised when runtime config is insufficient for selected provider."""
+
+
+class AnalysisProviderInputError(Exception):
+    """Raised when normalized submission input cannot be sent safely to the provider."""
 
 
 class AnalysisProviderInvocationError(Exception):
@@ -160,6 +176,8 @@ class FallbackAnalysisProvider:
     def analyze(self, *, analysis_input: AnalysisInput) -> ProviderAnalysisResult:
         try:
             return self._primary.analyze(analysis_input=analysis_input)
+        except AnalysisProviderInputError:
+            raise
         except Exception as error:
             fallback_result = self._fallback.analyze(analysis_input=analysis_input)
             warning = (
@@ -213,7 +231,7 @@ class OpenAICompatibleAnalysisProvider:
         self, *, analysis_input: AnalysisInput
     ) -> _AIProviderInvocationResult:
         endpoint = f"{self._base_url}/chat/completions"
-        user_payload = _build_provider_user_payload(analysis_input)
+        prompt_text = _build_provider_prompt_text(analysis_input)
 
         try:
             response = httpx.post(
@@ -231,10 +249,7 @@ class OpenAICompatibleAnalysisProvider:
                         {"role": "system", "content": self._SYSTEM_PROMPT},
                         {
                             "role": "user",
-                            "content": (
-                                "Analyze this submission payload and return JSON only:\n"
-                                f"{json.dumps(user_payload)}"
-                            ),
+                            "content": prompt_text,
                         },
                     ],
                 },
@@ -294,12 +309,16 @@ class GeminiAnalysisProvider:
         base_url: str,
         timeout_seconds: float,
         temperature: float,
+        max_input_tokens: int,
+        estimated_chars_per_token: int,
     ) -> None:
         self._api_key = api_key
         self._model_name = model_name
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._temperature = temperature
+        self._max_input_tokens = max_input_tokens
+        self._estimated_chars_per_token = estimated_chars_per_token
 
     def analyze(self, *, analysis_input: AnalysisInput) -> ProviderAnalysisResult:
         invocation = self._invoke_generate_content(analysis_input=analysis_input)
@@ -313,7 +332,17 @@ class GeminiAnalysisProvider:
         self, *, analysis_input: AnalysisInput
     ) -> _AIProviderInvocationResult:
         endpoint = f"{self._base_url}/models/{self._model_name}:generateContent?key={self._api_key}"
-        user_payload = _build_provider_user_payload(analysis_input)
+        prompt_text = _build_provider_prompt_text(analysis_input)
+        estimated_input_tokens = _estimate_prompt_token_count(
+            system_prompt=self._SYSTEM_PROMPT,
+            prompt_text=prompt_text,
+            estimated_chars_per_token=self._estimated_chars_per_token,
+        )
+        _ensure_prompt_within_token_budget(
+            model_name=self._model_name,
+            estimated_input_tokens=estimated_input_tokens,
+            max_input_tokens=self._max_input_tokens,
+        )
 
         try:
             response = httpx.post(
@@ -325,14 +354,7 @@ class GeminiAnalysisProvider:
                     "contents": [
                         {
                             "role": "user",
-                            "parts": [
-                                {
-                                    "text": (
-                                        "Analyze this submission payload and return JSON only:\n"
-                                        f"{json.dumps(user_payload)}"
-                                    )
-                                }
-                            ],
+                            "parts": [{"text": prompt_text}],
                         }
                     ],
                     "generationConfig": {
@@ -379,6 +401,8 @@ class GeminiAnalysisProvider:
             response_content=content,
             attributes={
                 "analysis_mode": "gemini_generate_content_json",
+                "estimated_input_tokens": str(estimated_input_tokens),
+                "max_input_tokens": str(self._max_input_tokens),
                 "finish_reason": str(finish_reason) if finish_reason is not None else "unknown",
             },
         )
@@ -602,6 +626,59 @@ def _build_provider_user_payload(analysis_input: AnalysisInput) -> dict:
     }
 
 
+def _build_provider_prompt_text(analysis_input: AnalysisInput) -> str:
+    """Return the exact user prompt text sent to AI providers."""
+
+    return (
+        "Analyze this submission payload and return JSON only:\n"
+        f"{json.dumps(_build_provider_user_payload(analysis_input), ensure_ascii=False)}"
+    )
+
+
+def _estimate_prompt_token_count(
+    *,
+    system_prompt: str,
+    prompt_text: str,
+    estimated_chars_per_token: int,
+) -> int:
+    """Estimate prompt token count from serialized prompt text.
+
+    The estimator is intentionally conservative. Using 3 chars/token produces a
+    higher token estimate than typical English prose, which gives Gemini free
+    tier requests headroom without requiring an extra network round-trip to
+    `countTokens`.
+    """
+
+    if estimated_chars_per_token <= 0:
+        raise AnalysisProviderConfigurationError(
+            "Gemini estimated chars-per-token must be greater than zero."
+        )
+    prompt_characters = len(system_prompt) + len(prompt_text)
+    return ceil(prompt_characters / estimated_chars_per_token)
+
+
+def _ensure_prompt_within_token_budget(
+    *,
+    model_name: str,
+    estimated_input_tokens: int,
+    max_input_tokens: int,
+) -> None:
+    """Reject prompts that exceed the configured Gemini input budget."""
+
+    if max_input_tokens <= 0:
+        raise AnalysisProviderConfigurationError(
+            "Gemini max input tokens must be greater than zero."
+        )
+    if estimated_input_tokens <= max_input_tokens:
+        return
+    raise AnalysisProviderInputError(
+        "Submission is too large for Gemini analysis. "
+        f"Estimated prompt size {estimated_input_tokens:,} input tokens exceeds the "
+        f"configured {model_name} limit of {max_input_tokens:,}. "
+        "Shorten the submitted terms text and try again."
+    )
+
+
 def _extract_text_from_provider_content(content: object) -> str:
     """Extract text from provider content shapes (string or parts list)."""
 
@@ -798,6 +875,8 @@ def _build_gemini_provider(config: AnalysisProviderRuntimeConfig) -> AnalysisPro
         base_url=config.gemini_base_url,
         timeout_seconds=config.ai_timeout_seconds,
         temperature=config.ai_temperature,
+        max_input_tokens=config.gemini_max_input_tokens,
+        estimated_chars_per_token=config.gemini_estimated_chars_per_token,
     )
 
 

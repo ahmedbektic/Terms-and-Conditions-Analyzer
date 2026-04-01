@@ -81,6 +81,7 @@ node_modules/
 .nuxt/
 .svelte-kit/
 .turbo/
+.wrangler/
 vite.svg
 *.tsbuildinfo
 coverage/

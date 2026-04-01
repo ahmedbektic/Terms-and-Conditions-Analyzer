@@ -54,6 +54,10 @@ services:
         sync: false
       - key: ANALYSIS_GEMINI_BASE_URL
         value: https://generativelanguage.googleapis.com/v1beta
+      - key: ANALYSIS_GEMINI_MAX_INPUT_TOKENS
+        value: "250000"
+      - key: ANALYSIS_GEMINI_ESTIMATED_CHARS_PER_TOKEN
+        value: "3"
       - key: ANALYSIS_OPENAI_COMPATIBLE_API_KEY
         sync: false
       - key: ANALYSIS_OPENAI_COMPATIBLE_MODEL

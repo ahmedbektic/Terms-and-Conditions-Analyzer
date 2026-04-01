@@ -79,10 +79,14 @@ class Settings:
     )
     analysis_gemini_model: str = os.getenv(
         "ANALYSIS_GEMINI_MODEL",
-        os.getenv("ANALYSIS_AI_MODEL", "gemini-2.0-flash"),
+        os.getenv("ANALYSIS_AI_MODEL", "gemini-2.5-flash"),
     )
     analysis_gemini_base_url: str = os.getenv(
         "ANALYSIS_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
+    )
+    analysis_gemini_max_input_tokens: int = _env_int("ANALYSIS_GEMINI_MAX_INPUT_TOKENS", "250000")
+    analysis_gemini_estimated_chars_per_token: int = _env_int(
+        "ANALYSIS_GEMINI_ESTIMATED_CHARS_PER_TOKEN", "3"
     )
     analysis_ai_timeout_seconds: float = _env_float("ANALYSIS_AI_TIMEOUT_SECONDS", "20")
     analysis_ai_temperature: float = _env_float("ANALYSIS_AI_TEMPERATURE", "0.1")
@@ -91,6 +95,21 @@ class Settings:
     )
     # Internal execution seam: sync is active now, queued modes can be added later.
     analysis_execution_mode: str = os.getenv("ANALYSIS_EXECUTION_MODE", "sync").lower()
+    # Transport-layer abuse protection defaults.
+    api_rate_limit_requests_per_window: int = _env_int("API_RATE_LIMIT_REQUESTS_PER_WINDOW", "60")
+    api_rate_limit_window_seconds: int = _env_int("API_RATE_LIMIT_WINDOW_SECONDS", "60")
+    agreement_create_rate_limit_requests: int = _env_int(
+        "AGREEMENT_CREATE_RATE_LIMIT_REQUESTS", "10"
+    )
+    agreement_create_rate_limit_window_seconds: int = _env_int(
+        "AGREEMENT_CREATE_RATE_LIMIT_WINDOW_SECONDS", "600"
+    )
+    analysis_rate_limit_requests: int = _env_int("ANALYSIS_RATE_LIMIT_REQUESTS", "5")
+    analysis_rate_limit_window_seconds: int = _env_int("ANALYSIS_RATE_LIMIT_WINDOW_SECONDS", "300")
+    analysis_hourly_rate_limit_requests: int = _env_int("ANALYSIS_HOURLY_RATE_LIMIT_REQUESTS", "20")
+    analysis_hourly_rate_limit_window_seconds: int = _env_int(
+        "ANALYSIS_HOURLY_RATE_LIMIT_WINDOW_SECONDS", "3600"
+    )
     cors_allowed_origins_csv: str = os.getenv(
         "CORS_ALLOWED_ORIGINS",
         "http://localhost:5173,http://127.0.0.1:5173",

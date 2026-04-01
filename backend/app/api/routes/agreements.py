@@ -75,5 +75,9 @@ def trigger_manual_analysis(
         report = service.trigger_manual_analysis(subject=subject, agreement_id=agreement_id)
     except AgreementNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except InvalidSubmissionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
 
     return to_report_response(report)

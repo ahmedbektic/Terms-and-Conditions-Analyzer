@@ -11,7 +11,12 @@
   "scripts": {
     "lint:frontend": "npm run -w frontend lint",
     "build:frontend": "npm run -w frontend build",
-    "test:frontend": "npm run -w frontend test"
+    "preview:frontend": "npm run -w frontend preview -- --host 127.0.0.1 --port 4173",
+    "test:frontend": "npm run -w frontend test",
+    "typecheck:extension": "npm run --prefix extension typecheck",
+    "test:extension": "npm run --prefix extension test",
+    "build:extension": "npm run --prefix extension build",
+    "verify:docker": "docker compose config"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.57.0",

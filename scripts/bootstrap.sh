@@ -29,7 +29,12 @@ echo "Installing backend Python dependencies"
 
 if [[ "${SKIP_NPM}" == "false" ]]; then
   echo "Installing frontend/workspace npm dependencies"
-  (cd "${REPO_ROOT}" && npm install)
+  (
+    cd "${REPO_ROOT}"
+    npm install
+    echo "Installing extension npm dependencies"
+    npm install --prefix extension --no-audit --no-fund
+  )
 else
   echo "Skipping npm install"
 fi
@@ -41,3 +46,5 @@ echo "Frontend run command:"
 echo "npm run -w frontend dev -- --host 127.0.0.1 --port 5173"
 echo "Frontend production preview command:"
 echo "npm run -w frontend preview -- --host 127.0.0.1 --port 4173"
+echo "Extension build command:"
+echo "npm run --prefix extension build"

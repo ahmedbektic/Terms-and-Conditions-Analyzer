@@ -20,11 +20,16 @@ Architectural boundary:
 
 from dataclasses import dataclass
 from datetime import datetime
-import re
 
+from ..core.input_validation import (
+    normalize_untrusted_text,
+    sanitize_optional_single_line_text,
+    sanitize_terms_text,
+)
 from .content_ingestion import (
     ContentIngestionError,
     ContentIngestionService,
+    DEFAULT_MAX_INGEST_CHARACTERS,
     MIN_ANALYZABLE_TEXT_LENGTH,
 )
 from .extraction_contracts import (
@@ -73,10 +78,14 @@ class SubmissionPreparationService:
     def prepare_terms_text_for_storage(self, *, terms_text: str) -> str:
         """Normalize and validate direct agreement text submissions."""
 
-        normalized_terms_text = self.normalize_text(terms_text)
-        if len(normalized_terms_text) < MIN_ANALYZABLE_TEXT_LENGTH:
-            raise InvalidSubmissionError("Agreement text must be at least 20 characters.")
-        return normalized_terms_text
+        try:
+            return sanitize_terms_text(
+                terms_text,
+                min_length=MIN_ANALYZABLE_TEXT_LENGTH,
+                max_length=DEFAULT_MAX_INGEST_CHARACTERS,
+            )
+        except ValueError as error:
+            raise InvalidSubmissionError(str(error)) from error
 
     def prepare_submission(self, *, submission: AnalysisSubmission) -> ExtractionIngestionResult:
         """Prepare legacy one-shot API payloads into extraction boundary DTOs."""
@@ -163,15 +172,16 @@ class SubmissionPreparationService:
     def normalize_text(self, value: str) -> str:
         """Collapse whitespace to keep storage and analysis inputs deterministic."""
 
-        return re.sub(r"\s+", " ", value).strip()
+        return normalize_untrusted_text(value)
 
     def _normalize_optional_value(self, value: str | None) -> str | None:
         """Normalize optional strings and collapse empty values to `None`."""
 
-        if value is None:
-            return None
-        normalized = self.normalize_text(value)
-        return normalized or None
+        return sanitize_optional_single_line_text(
+            value,
+            field_name="Field",
+            max_length=DEFAULT_MAX_INGEST_CHARACTERS,
+        )
 
     def _resolve_ingestion_source(
         self,

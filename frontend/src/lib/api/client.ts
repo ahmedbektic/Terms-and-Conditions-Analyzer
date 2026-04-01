@@ -12,6 +12,11 @@ import type {
   ReportListItemResponse,
   ReportResponse,
 } from './contracts';
+import {
+  sanitizeAgreementCreateInput,
+  sanitizeReportAnalyzeInput,
+  validateUuid,
+} from '../security/inputValidation';
 
 export interface DashboardApiClientConfig {
   baseUrl: string;
@@ -51,9 +56,10 @@ export class DashboardApiClient {
   }
 
   async createAgreement(payload: AgreementCreateRequest): Promise<AgreementResponse> {
+    const sanitizedPayload = sanitizeAgreementCreateInput(payload);
     return this.request<AgreementResponse>('/agreements', {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(sanitizedPayload),
     });
   }
 
@@ -61,7 +67,8 @@ export class DashboardApiClient {
     agreementId: string,
     payload: AnalysisTriggerRequest,
   ): Promise<ReportResponse> {
-    return this.request<ReportResponse>(`/agreements/${agreementId}/analyses`, {
+    const normalizedAgreementId = validateUuid(agreementId, 'Agreement id');
+    return this.request<ReportResponse>(`/agreements/${normalizedAgreementId}/analyses`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
@@ -72,14 +79,15 @@ export class DashboardApiClient {
   }
 
   async submitAndAnalyze(payload: ReportAnalyzeRequest): Promise<ReportResponse> {
+    const sanitizedPayload = sanitizeReportAnalyzeInput(payload);
     return this.request<ReportResponse>('/reports/analyze', {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(sanitizedPayload),
     });
   }
 
   async getReport(reportId: string): Promise<ReportResponse> {
-    return this.request<ReportResponse>(`/reports/${reportId}`);
+    return this.request<ReportResponse>(`/reports/${validateUuid(reportId, 'Report id')}`);
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
