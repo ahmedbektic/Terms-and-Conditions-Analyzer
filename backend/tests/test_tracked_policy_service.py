@@ -134,6 +134,7 @@ def test_tracked_policy_service_rejects_duplicate_active_canonical_url_per_owner
 
     assert created_tracked_policy.tracking_status == PolicyTrackingStatus.PENDING_FIRST_SNAPSHOT
     assert created_tracked_policy.last_checked_at == checked_at
+    assert created_tracked_policy.snapshot_version_count == 0
 
     with pytest.raises(DuplicateTrackedPolicyError):
         service.create_tracked_policy(

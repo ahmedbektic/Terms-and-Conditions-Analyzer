@@ -63,5 +63,6 @@ export function mapTrackedPolicy(response: TrackedPolicyResponse): DashboardTrac
     trackingStatus: response.tracking_status,
     lastCheckedAt: response.last_checked_at,
     createdAt: response.created_at,
+    snapshotVersionCount: response.snapshot_version_count,
   };
 }

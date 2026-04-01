@@ -30,6 +30,7 @@ export interface TrackedPolicyResponse {
   tracking_status: string;
   last_checked_at: string | null;
   created_at: string;
+  snapshot_version_count: number;
 }
 
 export interface AnalysisTriggerRequest {

@@ -53,6 +53,25 @@ def list_tracked_policies(
     return [to_tracked_policy_response(tracked_policy) for tracked_policy in tracked_policies]
 
 
+@router.post("/{tracked_policy_id}/check", response_model=TrackedPolicyResponse)
+def check_tracked_policy(
+    tracked_policy_id: UUID,
+    subject: RequestSubject = Depends(get_request_subject),
+    service: TrackedPolicyService = Depends(get_tracked_policy_service),
+) -> TrackedPolicyResponse:
+    """Fetch the live policy page, store a snapshot when text changes, and refresh status."""
+
+    try:
+        tracked_policy = service.check_tracked_policy(
+            subject=subject,
+            tracked_policy_id=tracked_policy_id,
+        )
+    except TrackedPolicyNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+    return to_tracked_policy_response(tracked_policy)
+
+
 @router.delete("/{tracked_policy_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_tracked_policy(
     tracked_policy_id: UUID,
