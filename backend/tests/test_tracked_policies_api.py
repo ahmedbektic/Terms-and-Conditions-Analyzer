@@ -112,6 +112,7 @@ def test_authenticated_user_can_create_list_and_delete_tracked_policies(
     assert created_tracked_policy["display_name"] == "Example Terms"
     assert created_tracked_policy["tracking_status"] == "pending_first_snapshot"
     assert created_tracked_policy["last_checked_at"] is not None
+    assert created_tracked_policy["snapshot_version_count"] == 0
 
     list_response = client.get("/api/v1/tracked-policies", headers=owner_headers)
     assert list_response.status_code == 200

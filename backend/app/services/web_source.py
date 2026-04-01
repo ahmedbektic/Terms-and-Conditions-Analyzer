@@ -185,6 +185,33 @@ class PublicWebSourceInspector:
         """Canonicalize, fetch, and verify a source URL for watchlist registration."""
 
         canonical_url = canonicalize_public_source_url(source_url)
+        payload, extracted_text = self._fetch_extract_and_validate(canonical_url=canonical_url)
+        display_name = self._derive_display_name(
+            canonical_url=canonical_url,
+            body_text=payload.body_text,
+            content_type=payload.content_type,
+        )
+        return InspectedWebSource(
+            canonical_url=canonical_url,
+            display_name=display_name,
+            source_type="url",
+            last_checked_at=datetime.now(timezone.utc),
+        )
+
+    def capture_policy_text(self, *, canonical_url: str) -> str:
+        """Fetch a canonical policy URL and return normalized, readable policy text.
+
+        Raises WebSourceInspectionError when the page cannot be reached or is unsuitable
+        for snapshot storage (same rules as watchlist registration).
+        """
+
+        url = canonicalize_public_source_url(canonical_url)
+        _, extracted_text = self._fetch_extract_and_validate(canonical_url=url)
+        return extracted_text
+
+    def _fetch_extract_and_validate(
+        self, *, canonical_url: str
+    ) -> tuple[UrlFetchPayload, str]:
         try:
             payload = self._url_content_fetcher.fetch(url=canonical_url)
         except (httpx.HTTPError, ValueError) as error:
@@ -206,18 +233,7 @@ class PublicWebSourceInspector:
             raise WebSourceInspectionError(
                 "That page did not contain enough readable policy text to track."
             )
-
-        display_name = self._derive_display_name(
-            canonical_url=canonical_url,
-            body_text=payload.body_text,
-            content_type=payload.content_type,
-        )
-        return InspectedWebSource(
-            canonical_url=canonical_url,
-            display_name=display_name,
-            source_type="url",
-            last_checked_at=datetime.now(timezone.utc),
-        )
+        return payload, extracted_text
 
     def _derive_display_name(
         self,

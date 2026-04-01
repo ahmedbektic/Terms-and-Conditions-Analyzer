@@ -67,6 +67,7 @@ function buildTrackedPolicy(overrides?: Partial<TrackedPolicyResponse>): Tracked
     tracking_status: 'pending_first_snapshot',
     last_checked_at: '2026-03-24T15:30:00Z',
     created_at: '2026-03-24T15:30:00Z',
+    snapshot_version_count: 0,
     ...overrides,
   };
 }

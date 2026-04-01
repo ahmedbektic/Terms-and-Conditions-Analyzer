@@ -13,6 +13,7 @@ report-specific responsibilities.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from ..repositories.errors import ActiveTrackedPolicyConflictError
@@ -114,3 +115,47 @@ class TrackedPolicyService:
         )
         if deactivated_policy is None:
             raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
+
+    def check_tracked_policy(self, *, subject: RequestSubject, tracked_policy_id: UUID) -> StoredTrackedPolicy:
+        """Fetch current policy text, store a new snapshot when it changes, and refresh status."""
+
+        existing = self._tracked_policy_repository.get_active_for_subject(
+            tracked_policy_id=tracked_policy_id,
+            subject_type=subject.subject_type,
+            subject_id=subject.subject_id,
+        )
+        if existing is None:
+            raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
+
+        checked_at = datetime.now(timezone.utc)
+        try:
+            policy_text = self._public_web_source_inspector.capture_policy_text(
+                canonical_url=existing.canonical_url
+            )
+        except WebSourceInspectionError:
+            updated = self._tracked_policy_repository.update_tracked_policy_check_state(
+                tracked_policy_id=tracked_policy_id,
+                subject_type=subject.subject_type,
+                subject_id=subject.subject_id,
+                last_checked_at=checked_at,
+                tracking_status=PolicyTrackingStatus.INVALID_SOURCE,
+            )
+            if updated is None:
+                raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
+            return updated
+
+        self._tracked_policy_repository.append_snapshot_if_text_changed(
+            tracked_policy_id=tracked_policy_id,
+            terms_text=policy_text,
+            captured_at=checked_at,
+        )
+        updated = self._tracked_policy_repository.update_tracked_policy_check_state(
+            tracked_policy_id=tracked_policy_id,
+            subject_type=subject.subject_type,
+            subject_id=subject.subject_id,
+            last_checked_at=checked_at,
+            tracking_status=PolicyTrackingStatus.ACTIVE,
+        )
+        if updated is None:
+            raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
+        return updated

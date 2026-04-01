@@ -88,6 +88,16 @@ CREATE INDEX IF NOT EXISTS idx_tracked_policies_owner_created
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tracked_policies_owner_url_active
   ON tracked_policies (subject_type, subject_id, canonical_url)
   WHERE active = TRUE;
+
+CREATE TABLE IF NOT EXISTS policy_snapshots (
+  id UUID PRIMARY KEY,
+  tracked_policy_id UUID NOT NULL REFERENCES tracked_policies(id) ON DELETE CASCADE,
+  terms_text TEXT NOT NULL,
+  captured_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_policy_snapshots_policy_captured
+  ON policy_snapshots (tracked_policy_id, captured_at DESC);
 """
 
 
@@ -119,7 +129,9 @@ class PostgresStorage:
 
         with self.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("TRUNCATE TABLE reports, agreements, tracked_policies;")
+                cursor.execute(
+                    "TRUNCATE TABLE policy_snapshots, reports, agreements, tracked_policies;"
+                )
             conn.commit()
 
 
@@ -293,6 +305,13 @@ class PostgresReportRepository:
         return _report_from_row(row) if row else None
 
 
+_TRACKED_POLICY_SELECT_FIELDS = """
+      tp.id, tp.subject_type, tp.subject_id, tp.canonical_url, tp.display_name,
+      tp.source_type, tp.tracking_status, tp.last_checked_at, tp.active, tp.created_at,
+      COALESCE(sc.cnt, 0) AS snapshot_version_count
+"""
+
+
 class PostgresTrackedPolicyRepository:
     """Postgres implementation of tracked-policy persistence."""
 
@@ -354,13 +373,16 @@ class PostgresTrackedPolicyRepository:
         with self._storage.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """
-                    SELECT
-                      id, subject_type, subject_id, canonical_url, display_name,
-                      source_type, tracking_status, last_checked_at, active, created_at
-                    FROM tracked_policies
-                    WHERE subject_type = %s AND subject_id = %s AND active = TRUE
-                    ORDER BY created_at DESC;
+                    f"""
+                    SELECT {_TRACKED_POLICY_SELECT_FIELDS.strip()}
+                    FROM tracked_policies tp
+                    LEFT JOIN (
+                      SELECT tracked_policy_id, COUNT(*)::int AS cnt
+                      FROM policy_snapshots
+                      GROUP BY tracked_policy_id
+                    ) sc ON sc.tracked_policy_id = tp.id
+                    WHERE tp.subject_type = %s AND tp.subject_id = %s AND tp.active = TRUE
+                    ORDER BY tp.created_at DESC;
                     """,
                     (subject_type, subject_id),
                 )
@@ -377,12 +399,15 @@ class PostgresTrackedPolicyRepository:
         with self._storage.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """
-                    SELECT
-                      id, subject_type, subject_id, canonical_url, display_name,
-                      source_type, tracking_status, last_checked_at, active, created_at
-                    FROM tracked_policies
-                    WHERE id = %s AND subject_type = %s AND subject_id = %s AND active = TRUE;
+                    f"""
+                    SELECT {_TRACKED_POLICY_SELECT_FIELDS.strip()}
+                    FROM tracked_policies tp
+                    LEFT JOIN (
+                      SELECT tracked_policy_id, COUNT(*)::int AS cnt
+                      FROM policy_snapshots
+                      GROUP BY tracked_policy_id
+                    ) sc ON sc.tracked_policy_id = tp.id
+                    WHERE tp.id = %s AND tp.subject_type = %s AND tp.subject_id = %s AND tp.active = TRUE;
                     """,
                     (tracked_policy_id, subject_type, subject_id),
                 )
@@ -399,16 +424,103 @@ class PostgresTrackedPolicyRepository:
         with self._storage.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """
-                    SELECT
-                      id, subject_type, subject_id, canonical_url, display_name,
-                      source_type, tracking_status, last_checked_at, active, created_at
-                    FROM tracked_policies
-                    WHERE canonical_url = %s AND subject_type = %s AND subject_id = %s AND active = TRUE;
+                    f"""
+                    SELECT {_TRACKED_POLICY_SELECT_FIELDS.strip()}
+                    FROM tracked_policies tp
+                    LEFT JOIN (
+                      SELECT tracked_policy_id, COUNT(*)::int AS cnt
+                      FROM policy_snapshots
+                      GROUP BY tracked_policy_id
+                    ) sc ON sc.tracked_policy_id = tp.id
+                    WHERE tp.canonical_url = %s AND tp.subject_type = %s AND tp.subject_id = %s
+                      AND tp.active = TRUE;
                     """,
                     (canonical_url, subject_type, subject_id),
                 )
                 row = cursor.fetchone()
+        return _tracked_policy_from_row(row) if row else None
+
+    def append_snapshot_if_text_changed(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        terms_text: str,
+        captured_at: datetime,
+    ) -> bool:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT terms_text
+                    FROM policy_snapshots
+                    WHERE tracked_policy_id = %s
+                    ORDER BY captured_at DESC
+                    LIMIT 1;
+                    """,
+                    (tracked_policy_id,),
+                )
+                row = cursor.fetchone()
+                if row is not None and row["terms_text"] == terms_text:
+                    conn.commit()
+                    return False
+                cursor.execute(
+                    """
+                    INSERT INTO policy_snapshots (
+                      id, tracked_policy_id, terms_text, captured_at
+                    ) VALUES (%s, %s, %s, %s);
+                    """,
+                    (uuid4(), tracked_policy_id, terms_text, captured_at),
+                )
+            conn.commit()
+        return True
+
+    def update_tracked_policy_check_state(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+        last_checked_at: datetime,
+        tracking_status: PolicyTrackingStatus,
+    ) -> StoredTrackedPolicy | None:
+        normalized_status = normalize_policy_tracking_status(tracking_status)
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE tracked_policies
+                    SET last_checked_at = %s, tracking_status = %s
+                    WHERE id = %s AND subject_type = %s AND subject_id = %s AND active = TRUE
+                    RETURNING id;
+                    """,
+                    (
+                        last_checked_at,
+                        normalized_status.value,
+                        tracked_policy_id,
+                        subject_type,
+                        subject_id,
+                    ),
+                )
+                updated = cursor.fetchone()
+            if updated is None:
+                conn.commit()
+                return None
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {_TRACKED_POLICY_SELECT_FIELDS.strip()}
+                    FROM tracked_policies tp
+                    LEFT JOIN (
+                      SELECT tracked_policy_id, COUNT(*)::int AS cnt
+                      FROM policy_snapshots
+                      GROUP BY tracked_policy_id
+                    ) sc ON sc.tracked_policy_id = tp.id
+                    WHERE tp.id = %s AND tp.subject_type = %s AND tp.subject_id = %s AND tp.active = TRUE;
+                    """,
+                    (tracked_policy_id, subject_type, subject_id),
+                )
+                row = cursor.fetchone()
+            conn.commit()
         return _tracked_policy_from_row(row) if row else None
 
     def deactivate_for_subject(
@@ -432,6 +544,18 @@ class PostgresTrackedPolicyRepository:
                     (tracked_policy_id, subject_type, subject_id),
                 )
                 row = cursor.fetchone()
+                if row is not None:
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*)::int AS cnt
+                        FROM policy_snapshots
+                        WHERE tracked_policy_id = %s;
+                        """,
+                        (tracked_policy_id,),
+                    )
+                    count_row = cursor.fetchone()
+                    row = dict(row)
+                    row["snapshot_version_count"] = count_row["cnt"] if count_row else 0
             conn.commit()
         return _tracked_policy_from_row(row) if row else None
 
@@ -503,4 +627,5 @@ def _tracked_policy_from_row(row: dict | None) -> StoredTrackedPolicy:
         last_checked_at=row["last_checked_at"],
         active=row["active"],
         created_at=row["created_at"],
+        snapshot_version_count=int(row.get("snapshot_version_count", 0)),
     )

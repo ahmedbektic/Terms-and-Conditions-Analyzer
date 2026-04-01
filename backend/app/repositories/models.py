@@ -71,3 +71,4 @@ class StoredTrackedPolicy:
     last_checked_at: datetime | None
     active: bool
     created_at: datetime
+    snapshot_version_count: int

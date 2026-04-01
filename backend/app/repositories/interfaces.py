@@ -111,3 +111,21 @@ class TrackedPolicyRepository(Protocol):
         subject_type: str,
         subject_id: str,
     ) -> StoredTrackedPolicy | None: ...
+
+    def append_snapshot_if_text_changed(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        terms_text: str,
+        captured_at: datetime,
+    ) -> bool: ...
+
+    def update_tracked_policy_check_state(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+        last_checked_at: datetime,
+        tracking_status: PolicyTrackingStatus,
+    ) -> StoredTrackedPolicy | None: ...

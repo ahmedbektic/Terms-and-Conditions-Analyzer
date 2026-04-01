@@ -33,3 +33,4 @@ class TrackedPolicyResponse(BaseModel):
     tracking_status: str
     last_checked_at: datetime | None
     created_at: datetime
+    snapshot_version_count: int

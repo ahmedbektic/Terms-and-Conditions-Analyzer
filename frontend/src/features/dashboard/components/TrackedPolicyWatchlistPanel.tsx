@@ -104,6 +104,9 @@ export function TrackedPolicyWatchlistPanel({
                 <strong className="watchlist-display-name">{trackedPolicy.displayName}</strong>
                 <span className="watchlist-url">{trackedPolicy.canonicalUrl}</span>
                 <span className="watchlist-meta">
+                  {trackedPolicy.snapshotVersionCount} stored version
+                  {trackedPolicy.snapshotVersionCount === 1 ? '' : 's'}
+                  {' · '}
                   Last checked{' '}
                   {trackedPolicy.lastCheckedAt
                     ? formatDashboardDate(trackedPolicy.lastCheckedAt)

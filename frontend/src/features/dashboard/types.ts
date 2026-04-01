@@ -48,4 +48,5 @@ export interface DashboardTrackedPolicy {
   trackingStatus: string;
   lastCheckedAt: string | null;
   createdAt: string;
+  snapshotVersionCount: number;
 }

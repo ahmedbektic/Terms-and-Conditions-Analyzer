@@ -15,4 +15,5 @@ def to_tracked_policy_response(tracked_policy: StoredTrackedPolicy) -> TrackedPo
         tracking_status=tracked_policy.tracking_status.value,
         last_checked_at=tracked_policy.last_checked_at,
         created_at=tracked_policy.created_at,
+        snapshot_version_count=tracked_policy.snapshot_version_count,
     )

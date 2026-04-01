@@ -20,11 +20,13 @@ class InMemoryStorage:
         self.agreements: dict[UUID, StoredAgreement] = {}
         self.reports: dict[UUID, StoredReport] = {}
         self.tracked_policies: dict[UUID, StoredTrackedPolicy] = {}
+        self.policy_snapshots: dict[UUID, list[tuple[str, datetime]]] = {}
 
     def clear(self) -> None:
         self.agreements.clear()
         self.reports.clear()
         self.tracked_policies.clear()
+        self.policy_snapshots.clear()
 
 
 class InMemoryAgreementRepository:
@@ -165,6 +167,7 @@ class InMemoryTrackedPolicyRepository:
             last_checked_at=last_checked_at,
             active=active,
             created_at=datetime.now(timezone.utc),
+            snapshot_version_count=0,
         )
         self._storage.tracked_policies[tracked_policy.id] = tracked_policy
         return tracked_policy
@@ -180,7 +183,15 @@ class InMemoryTrackedPolicyRepository:
             and tracked_policy.active
         ]
         return sorted(
-            tracked_policies,
+            (
+                replace(
+                    tracked_policy,
+                    snapshot_version_count=len(
+                        self._storage.policy_snapshots.get(tracked_policy.id, [])
+                    ),
+                )
+                for tracked_policy in tracked_policies
+            ),
             key=lambda tracked_policy: tracked_policy.created_at,
             reverse=True,
         )
@@ -197,6 +208,9 @@ class InMemoryTrackedPolicyRepository:
             return None
         if tracked_policy.subject_type != subject_type or tracked_policy.subject_id != subject_id:
             return None
+        count = len(self._storage.policy_snapshots.get(tracked_policy_id, []))
+        if tracked_policy.snapshot_version_count != count:
+            return replace(tracked_policy, snapshot_version_count=count)
         return tracked_policy
 
     def get_active_by_canonical_url_for_subject(
@@ -213,6 +227,9 @@ class InMemoryTrackedPolicyRepository:
                 and tracked_policy.canonical_url == canonical_url
                 and tracked_policy.active
             ):
+                count = len(self._storage.policy_snapshots.get(tracked_policy.id, []))
+                if tracked_policy.snapshot_version_count != count:
+                    return replace(tracked_policy, snapshot_version_count=count)
                 return tracked_policy
         return None
 
@@ -230,6 +247,48 @@ class InMemoryTrackedPolicyRepository:
         )
         if tracked_policy is None:
             return None
-        deactivated_policy = replace(tracked_policy, active=False)
+        count = len(self._storage.policy_snapshots.get(tracked_policy_id, []))
+        deactivated_policy = replace(
+            tracked_policy, active=False, snapshot_version_count=count
+        )
         self._storage.tracked_policies[tracked_policy_id] = deactivated_policy
         return deactivated_policy
+
+    def append_snapshot_if_text_changed(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        terms_text: str,
+        captured_at: datetime,
+    ) -> bool:
+        stored = self._storage.policy_snapshots.setdefault(tracked_policy_id, [])
+        if stored and stored[-1][0] == terms_text:
+            return False
+        stored.append((terms_text, captured_at))
+        return True
+
+    def update_tracked_policy_check_state(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+        last_checked_at: datetime,
+        tracking_status: PolicyTrackingStatus,
+    ) -> StoredTrackedPolicy | None:
+        tracked_policy = self.get_active_for_subject(
+            tracked_policy_id=tracked_policy_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+        )
+        if tracked_policy is None:
+            return None
+        count = len(self._storage.policy_snapshots.get(tracked_policy_id, []))
+        updated = replace(
+            tracked_policy,
+            last_checked_at=last_checked_at,
+            tracking_status=normalize_policy_tracking_status(tracking_status),
+            snapshot_version_count=count,
+        )
+        self._storage.tracked_policies[tracked_policy_id] = updated
+        return updated
