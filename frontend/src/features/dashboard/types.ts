@@ -39,3 +39,13 @@ export interface DashboardReportListItem {
   modelName: string;
   createdAt: string;
 }
+
+export interface DashboardTrackedPolicy {
+  id: string;
+  canonicalUrl: string;
+  displayName: string;
+  sourceType: string;
+  trackingStatus: string;
+  lastCheckedAt: string | null;
+  createdAt: string;
+}

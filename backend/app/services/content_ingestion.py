@@ -18,116 +18,33 @@ Upgrade seam:
   orchestration or route contracts.
 """
 
-from dataclasses import dataclass
-from html import unescape
 import re
-from typing import Protocol
-from urllib.parse import urlparse
 
 import httpx
 
-from ..core.input_validation import normalize_untrusted_text, validate_external_source_url
 from .extraction_contracts import (
     ExtractionIngestionRequest,
     ExtractionIngestionResult,
     ExtractionMetadata,
     ExtractionSourceKind,
 )
+from .web_source import (
+    DEFAULT_WEB_SOURCE_TIMEOUT_SECONDS,
+    FetchedContentExtractor,
+    HttpxUrlContentFetcher,
+    SimpleFetchedContentExtractor,
+    UrlContentFetcher,
+    UrlFetchPayload,
+)
 
 MIN_ANALYZABLE_TEXT_LENGTH = 20
 DEFAULT_EXCERPT_MAX_LENGTH = 280
-DEFAULT_INGEST_TIMEOUT_SECONDS = 8.0
+DEFAULT_INGEST_TIMEOUT_SECONDS = DEFAULT_WEB_SOURCE_TIMEOUT_SECONDS
 DEFAULT_MAX_INGEST_CHARACTERS = 200_000
 
 
 class ContentIngestionError(Exception):
     """Raised when content ingestion cannot produce usable analysis text."""
-
-
-@dataclass(frozen=True)
-class UrlFetchPayload:
-    """Raw URL response payload from the fetch layer."""
-
-    body_text: str
-    content_type: str
-
-
-class UrlContentFetcher(Protocol):
-    """Protocol for swappable URL content acquisition implementations."""
-
-    def fetch(self, *, url: str) -> UrlFetchPayload: ...
-
-
-class FetchedContentExtractor(Protocol):
-    """Protocol for swappable fetched-content extraction implementations."""
-
-    def extract(self, *, body_text: str, content_type: str) -> tuple[str, str]: ...
-
-
-class HttpxUrlContentFetcher:
-    """HTTP fetcher implementation for sync MVP ingestion."""
-
-    def __init__(
-        self,
-        *,
-        timeout_seconds: float = DEFAULT_INGEST_TIMEOUT_SECONDS,
-    ) -> None:
-        self._timeout_seconds = timeout_seconds
-
-    def fetch(self, *, url: str) -> UrlFetchPayload:
-        """Fetch URL content and return body text plus response content type."""
-
-        safe_url = validate_external_source_url(url)
-        parsed = urlparse(safe_url)
-        if parsed.scheme not in {"http", "https"}:
-            raise ContentIngestionError("URL ingestion supports only http/https sources.")
-
-        response = httpx.get(
-            safe_url,
-            follow_redirects=True,
-            timeout=self._timeout_seconds,
-            headers={
-                "User-Agent": ("TermsAnalyzerBot/0.1 (+https://example.invalid/content-ingestion)")
-            },
-        )
-        response.raise_for_status()
-        return UrlFetchPayload(
-            body_text=response.text,
-            content_type=response.headers.get("content-type", ""),
-        )
-
-
-class SimpleFetchedContentExtractor:
-    """Lightweight fetched-content extractor for sync MVP ingestion.
-
-    This extraction strategy is intentionally simple. It is designed to be
-    replaced later by richer HTML/article extraction while preserving the same
-    ingestion service interface.
-    """
-
-    def extract(self, *, body_text: str, content_type: str) -> tuple[str, str]:
-        normalized_content_type = content_type.lower()
-        if "html" in normalized_content_type or self._looks_like_html(body_text):
-            return self._extract_text_from_html(body_text), "url_fetch_html_tag_strip"
-        return self._normalize_text(unescape(body_text)), "url_fetch_plain_text"
-
-    def _extract_text_from_html(self, html_text: str) -> str:
-        """Extract plain text from HTML via lightweight regex-based stripping."""
-
-        without_scripts = re.sub(
-            r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>",
-            " ",
-            html_text,
-        )
-        without_tags = re.sub(r"(?s)<[^>]+>", " ", without_scripts)
-        return self._normalize_text(unescape(without_tags))
-
-    def _normalize_text(self, value: str) -> str:
-        return normalize_untrusted_text(value)
-
-    def _looks_like_html(self, text: str) -> bool:
-        lowered = text.lower()
-        return "<html" in lowered or "<body" in lowered or "<div" in lowered
 
 
 class ContentIngestionService:

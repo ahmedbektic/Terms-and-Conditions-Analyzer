@@ -10,6 +10,7 @@ from datetime import datetime
 from uuid import UUID
 
 from .analysis_status import AnalysisLifecycleStatus
+from .policy_tracking_status import PolicyTrackingStatus
 
 
 @dataclass(frozen=True)
@@ -54,3 +55,19 @@ class StoredReport:
     flagged_clauses: list[StoredFlaggedClause]
     created_at: datetime
     completed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class StoredTrackedPolicy:
+    """Persisted watchlist entry for an authenticated user's tracked policy URL."""
+
+    id: UUID
+    subject_type: str
+    subject_id: str
+    canonical_url: str
+    display_name: str
+    source_type: str
+    tracking_status: PolicyTrackingStatus
+    last_checked_at: datetime | None
+    active: bool
+    created_at: datetime

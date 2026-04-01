@@ -26,6 +26,7 @@ from uuid import UUID
 
 from ..repositories.interfaces import AgreementRepository, ReportRepository
 from ..repositories.models import StoredAgreement, StoredReport
+from .request_subject import RequestSubject
 from .ai_provider import AnalysisProviderInputError
 from .analysis_execution import AnalysisExecutionRequest, AnalysisExecutionStrategy
 from .extraction_contracts import ExtractionIngestionResult
@@ -43,14 +44,6 @@ __all__ = [
     "ReportNotFoundError",
     "RequestSubject",
 ]
-
-
-@dataclass(frozen=True)
-class RequestSubject:
-    """Identity tuple used for owner-scoped data access."""
-
-    subject_type: str
-    subject_id: str
 
 
 class AgreementNotFoundError(Exception):

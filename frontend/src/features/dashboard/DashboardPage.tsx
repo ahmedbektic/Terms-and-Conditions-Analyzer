@@ -13,7 +13,9 @@ import { AgreementSubmissionForm } from './components/AgreementSubmissionForm';
 import { AnalysisSummaryCard } from './components/AnalysisSummaryCard';
 import { FlaggedClausesList } from './components/FlaggedClausesList';
 import { ReportHistoryList } from './components/ReportHistoryList';
+import { TrackedPolicyWatchlistPanel } from './components/TrackedPolicyWatchlistPanel';
 import { useDashboardReports } from './hooks/useDashboardReports';
+import { useTrackedPolicies } from './hooks/useTrackedPolicies';
 
 interface DashboardPageProps {
   // Optional injection seam for tests and auth-aware wrappers.
@@ -37,17 +39,33 @@ export function DashboardPage({
     isSubmitting,
     isLoadingHistory,
     isLoadingReport,
-    errorMessage,
-    successMessage,
+    errorMessage: reportErrorMessage,
+    successMessage: reportSuccessMessage,
     submitAndAnalyze,
     loadReportHistory,
     selectReport,
-    clearMessages,
+    clearMessages: clearReportMessages,
   } = useDashboardReports(effectiveApiClient);
+  const {
+    trackedPolicies,
+    isLoadingTrackedPolicies,
+    isCreatingTrackedPolicy,
+    removingTrackedPolicyId,
+    errorMessage: trackedPolicyErrorMessage,
+    successMessage: trackedPolicySuccessMessage,
+    loadTrackedPolicies,
+    createTrackedPolicy,
+    removeTrackedPolicy,
+    clearMessages: clearTrackedPolicyMessages,
+  } = useTrackedPolicies(effectiveApiClient);
 
   useEffect(() => {
     void loadReportHistory();
   }, [loadReportHistory]);
+
+  useEffect(() => {
+    void loadTrackedPolicies();
+  }, [loadTrackedPolicies]);
 
   return (
     <main className="dashboard">
@@ -55,28 +73,57 @@ export function DashboardPage({
         <div className="dashboard-header-copy">
           <h1>Terms and Conditions Dashboard</h1>
           <p className="dashboard-subtitle">
-            Submit terms, generate analysis, and review saved reports.
+            Submit terms, review saved reports, and keep a watchlist of policies you want tracked.
           </p>
           {contextLabel ? <p className="dashboard-user">{contextLabel}</p> : null}
         </div>
         {headerAction ? <div className="header-actions">{headerAction}</div> : null}
       </header>
 
-      {errorMessage || successMessage ? (
+      {reportErrorMessage ||
+      reportSuccessMessage ||
+      trackedPolicyErrorMessage ||
+      trackedPolicySuccessMessage ? (
         <section className="dashboard-feedback" aria-live="polite">
-          {errorMessage ? (
+          {reportErrorMessage ? (
             <div className="error-banner" role="alert">
-              <span>{errorMessage}</span>
-              <button type="button" className="button-link" onClick={clearMessages}>
+              <span>{reportErrorMessage}</span>
+              <button type="button" className="button-link" onClick={clearReportMessages}>
                 Dismiss
               </button>
             </div>
           ) : null}
 
-          {successMessage ? (
+          {reportSuccessMessage ? (
             <div className="success-banner" role="status">
-              <span>{successMessage}</span>
-              <button type="button" className="button-link" onClick={clearMessages}>
+              <span>{reportSuccessMessage}</span>
+              <button type="button" className="button-link" onClick={clearReportMessages}>
+                Dismiss
+              </button>
+            </div>
+          ) : null}
+
+          {trackedPolicyErrorMessage ? (
+            <div className="error-banner" role="alert">
+              <span>{trackedPolicyErrorMessage}</span>
+              <button
+                type="button"
+                className="button-link"
+                onClick={clearTrackedPolicyMessages}
+              >
+                Dismiss
+              </button>
+            </div>
+          ) : null}
+
+          {trackedPolicySuccessMessage ? (
+            <div className="success-banner" role="status">
+              <span>{trackedPolicySuccessMessage}</span>
+              <button
+                type="button"
+                className="button-link"
+                onClick={clearTrackedPolicyMessages}
+              >
                 Dismiss
               </button>
             </div>
@@ -88,6 +135,14 @@ export function DashboardPage({
         {/* Left column handles submission + retrieval controls; right column is read-only analysis output. */}
         <div className="dashboard-column dashboard-column-primary">
           <AgreementSubmissionForm onSubmit={submitAndAnalyze} isSubmitting={isSubmitting} />
+          <TrackedPolicyWatchlistPanel
+            trackedPolicies={trackedPolicies}
+            isLoadingTrackedPolicies={isLoadingTrackedPolicies}
+            isCreatingTrackedPolicy={isCreatingTrackedPolicy}
+            removingTrackedPolicyId={removingTrackedPolicyId}
+            onCreateTrackedPolicy={createTrackedPolicy}
+            onRemoveTrackedPolicy={removeTrackedPolicy}
+          />
           <ReportHistoryList
             reports={reportHistory}
             selectedReportId={selectedReport?.id ?? null}

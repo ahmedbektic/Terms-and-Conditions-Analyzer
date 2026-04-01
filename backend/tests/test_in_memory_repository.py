@@ -6,9 +6,11 @@ import pytest
 from app.repositories.in_memory import (
     InMemoryAgreementRepository,
     InMemoryReportRepository,
+    InMemoryTrackedPolicyRepository,
     InMemoryStorage,
 )
 from app.repositories.analysis_status import AnalysisLifecycleStatus
+from app.repositories.policy_tracking_status import PolicyTrackingStatus
 from app.repositories.models import StoredFlaggedClause
 
 
@@ -208,3 +210,89 @@ def test_report_repository_rejects_unknown_lifecycle_status() -> None:
             flagged_clauses=[],
             completed_at=datetime.now(timezone.utc),
         )
+
+
+def test_tracked_policy_repository_scopes_active_policies_by_owner_and_hides_inactive() -> None:
+    storage = InMemoryStorage()
+    repository = InMemoryTrackedPolicyRepository(storage)
+
+    owner_a_policy = repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        canonical_url="https://service-a.example/terms",
+        display_name="Service A Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.PENDING_FIRST_SNAPSHOT,
+        last_checked_at=datetime.now(timezone.utc),
+    )
+    repository.create(
+        subject_type="supabase_user",
+        subject_id="user-b",
+        canonical_url="https://service-b.example/terms",
+        display_name="Service B Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.ACTIVE,
+        last_checked_at=datetime.now(timezone.utc),
+    )
+
+    deactivated_policy = repository.deactivate_for_subject(
+        tracked_policy_id=owner_a_policy.id,
+        subject_type="supabase_user",
+        subject_id="user-a",
+    )
+
+    assert deactivated_policy is not None
+    assert deactivated_policy.active is False
+    assert (
+        repository.list_active_for_subject(
+            subject_type="supabase_user",
+            subject_id="user-a",
+        )
+        == []
+    )
+    assert (
+        len(
+            repository.list_active_for_subject(
+                subject_type="supabase_user",
+                subject_id="user-b",
+            )
+        )
+        == 1
+    )
+
+
+def test_tracked_policy_repository_lists_newest_active_first() -> None:
+    storage = InMemoryStorage()
+    repository = InMemoryTrackedPolicyRepository(storage)
+
+    older_policy = repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        canonical_url="https://service-a.example/terms",
+        display_name="Service A Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.PENDING_FIRST_SNAPSHOT,
+        last_checked_at=datetime.now(timezone.utc),
+    )
+
+    time.sleep(0.001)
+
+    newer_policy = repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        canonical_url="https://service-b.example/terms",
+        display_name="Service B Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.ACTIVE,
+        last_checked_at=datetime.now(timezone.utc),
+    )
+
+    tracked_policies = repository.list_active_for_subject(
+        subject_type="supabase_user",
+        subject_id="user-a",
+    )
+
+    assert [tracked_policy.id for tracked_policy in tracked_policies] == [
+        newer_policy.id,
+        older_policy.id,
+    ]

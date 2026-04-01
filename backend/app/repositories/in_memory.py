@@ -5,10 +5,12 @@ when a Supabase/Postgres implementation is introduced.
 """
 
 from datetime import datetime, timezone
+from dataclasses import replace
 from uuid import UUID, uuid4
 
 from .analysis_status import AnalysisLifecycleStatus, normalize_analysis_lifecycle_status
-from .models import StoredAgreement, StoredFlaggedClause, StoredReport
+from .models import StoredAgreement, StoredFlaggedClause, StoredReport, StoredTrackedPolicy
+from .policy_tracking_status import PolicyTrackingStatus, normalize_policy_tracking_status
 
 
 class InMemoryStorage:
@@ -17,10 +19,12 @@ class InMemoryStorage:
     def __init__(self) -> None:
         self.agreements: dict[UUID, StoredAgreement] = {}
         self.reports: dict[UUID, StoredReport] = {}
+        self.tracked_policies: dict[UUID, StoredTrackedPolicy] = {}
 
     def clear(self) -> None:
         self.agreements.clear()
         self.reports.clear()
+        self.tracked_policies.clear()
 
 
 class InMemoryAgreementRepository:
@@ -130,3 +134,102 @@ class InMemoryReportRepository:
         if report.subject_type != subject_type or report.subject_id != subject_id:
             return None
         return report
+
+
+class InMemoryTrackedPolicyRepository:
+    """In-memory tracked-policy repository implementation."""
+
+    def __init__(self, storage: InMemoryStorage) -> None:
+        self._storage = storage
+
+    def create(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        canonical_url: str,
+        display_name: str,
+        source_type: str,
+        tracking_status: PolicyTrackingStatus,
+        last_checked_at: datetime | None,
+        active: bool = True,
+    ) -> StoredTrackedPolicy:
+        tracked_policy = StoredTrackedPolicy(
+            id=uuid4(),
+            subject_type=subject_type,
+            subject_id=subject_id,
+            canonical_url=canonical_url,
+            display_name=display_name,
+            source_type=source_type,
+            tracking_status=normalize_policy_tracking_status(tracking_status),
+            last_checked_at=last_checked_at,
+            active=active,
+            created_at=datetime.now(timezone.utc),
+        )
+        self._storage.tracked_policies[tracked_policy.id] = tracked_policy
+        return tracked_policy
+
+    def list_active_for_subject(
+        self, *, subject_type: str, subject_id: str
+    ) -> list[StoredTrackedPolicy]:
+        tracked_policies = [
+            tracked_policy
+            for tracked_policy in self._storage.tracked_policies.values()
+            if tracked_policy.subject_type == subject_type
+            and tracked_policy.subject_id == subject_id
+            and tracked_policy.active
+        ]
+        return sorted(
+            tracked_policies,
+            key=lambda tracked_policy: tracked_policy.created_at,
+            reverse=True,
+        )
+
+    def get_active_for_subject(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicy | None:
+        tracked_policy = self._storage.tracked_policies.get(tracked_policy_id)
+        if tracked_policy is None or not tracked_policy.active:
+            return None
+        if tracked_policy.subject_type != subject_type or tracked_policy.subject_id != subject_id:
+            return None
+        return tracked_policy
+
+    def get_active_by_canonical_url_for_subject(
+        self,
+        *,
+        canonical_url: str,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicy | None:
+        for tracked_policy in self._storage.tracked_policies.values():
+            if (
+                tracked_policy.subject_type == subject_type
+                and tracked_policy.subject_id == subject_id
+                and tracked_policy.canonical_url == canonical_url
+                and tracked_policy.active
+            ):
+                return tracked_policy
+        return None
+
+    def deactivate_for_subject(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicy | None:
+        tracked_policy = self.get_active_for_subject(
+            tracked_policy_id=tracked_policy_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+        )
+        if tracked_policy is None:
+            return None
+        deactivated_policy = replace(tracked_policy, active=False)
+        self._storage.tracked_policies[tracked_policy_id] = deactivated_policy
+        return deactivated_policy

@@ -228,13 +228,13 @@ PERSISTENCE_BACKEND=memory
 AUTH_REQUIRE_JWT_SIGNATURE_VERIFICATION=true
 SUPABASE_URL=https://<your-project-ref>.supabase.co
 SUPABASE_JWT_AUDIENCE=authenticated
-CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
 ```
 
 If extension analyze calls fail with CORS, append extension origin:
 
 ```env
-CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,chrome-extension://<your-extension-id>
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173,chrome-extension://<your-extension-id>
 ```
 
 Restart backend after editing `backend/.env`.

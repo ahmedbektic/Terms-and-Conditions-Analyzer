@@ -15,6 +15,7 @@ import { useMemo, useState } from 'react';
 import { PanelStateMessage } from '../../components/ui/PanelStateMessage';
 import { createDashboardApiClient } from '../../lib/api/createDashboardApiClient';
 import { DashboardPage } from '../dashboard/DashboardPage';
+import { ThemeToggleButton } from '../theme/ThemeToggleButton';
 import { useAuth } from './AuthProvider';
 import { LoginScreen } from './components/LoginScreen';
 
@@ -81,16 +82,19 @@ export function AuthEntryPoint() {
       apiClient={dashboardApiClient}
       contextLabel={state.session?.email ? `Signed in as ${state.session.email}` : null}
       headerAction={
-        <button
-          type="button"
-          className="button-secondary"
-          onClick={() => {
-            void runSubmittingAction(() => signOut());
-          }}
-          disabled={isSubmitting}
-        >
-          Sign out
-        </button>
+        <>
+          <ThemeToggleButton />
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => {
+              void runSubmittingAction(() => signOut());
+            }}
+            disabled={isSubmitting}
+          >
+            Sign out
+          </button>
+        </>
       }
     />
   );

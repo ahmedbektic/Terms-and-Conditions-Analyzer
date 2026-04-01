@@ -21,7 +21,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Terms and Conditions Analyzer API",
         version="0.1.0",
-        description="MVP API for terms submission, analysis, and saved report retrieval.",
+        description="MVP API for terms submission, analysis, saved report retrieval, and tracked policy watchlists.",
     )
     app.add_middleware(
         CORSMiddleware,
