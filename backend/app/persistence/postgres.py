@@ -11,13 +11,24 @@ import json
 from uuid import UUID, uuid4
 
 import psycopg
+from psycopg import errors as psycopg_errors
 from psycopg.rows import dict_row
 
 from ..repositories.analysis_status import (
     AnalysisLifecycleStatus,
     normalize_analysis_lifecycle_status,
 )
-from ..repositories.models import StoredAgreement, StoredFlaggedClause, StoredReport
+from ..repositories.errors import ActiveTrackedPolicyConflictError
+from ..repositories.models import (
+    StoredAgreement,
+    StoredFlaggedClause,
+    StoredReport,
+    StoredTrackedPolicy,
+)
+from ..repositories.policy_tracking_status import (
+    PolicyTrackingStatus,
+    normalize_policy_tracking_status,
+)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS agreements (
@@ -55,6 +66,28 @@ CREATE TABLE IF NOT EXISTS reports (
 
 CREATE INDEX IF NOT EXISTS idx_reports_owner_created
   ON reports (subject_type, subject_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS tracked_policies (
+  id UUID PRIMARY KEY,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  canonical_url TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  tracking_status TEXT NOT NULL CHECK (
+    tracking_status IN ('pending_first_snapshot', 'active', 'invalid_source')
+  ),
+  last_checked_at TIMESTAMPTZ NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracked_policies_owner_created
+  ON tracked_policies (subject_type, subject_id, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tracked_policies_owner_url_active
+  ON tracked_policies (subject_type, subject_id, canonical_url)
+  WHERE active = TRUE;
 """
 
 
@@ -86,7 +119,7 @@ class PostgresStorage:
 
         with self.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("TRUNCATE TABLE reports, agreements;")
+                cursor.execute("TRUNCATE TABLE reports, agreements, tracked_policies;")
             conn.commit()
 
 
@@ -260,6 +293,149 @@ class PostgresReportRepository:
         return _report_from_row(row) if row else None
 
 
+class PostgresTrackedPolicyRepository:
+    """Postgres implementation of tracked-policy persistence."""
+
+    def __init__(self, storage: PostgresStorage) -> None:
+        self._storage = storage
+
+    def create(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        canonical_url: str,
+        display_name: str,
+        source_type: str,
+        tracking_status: PolicyTrackingStatus,
+        last_checked_at: datetime | None,
+        active: bool = True,
+    ) -> StoredTrackedPolicy:
+        tracked_policy_id = uuid4()
+        normalized_status = normalize_policy_tracking_status(tracking_status)
+
+        try:
+            with self._storage.connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO tracked_policies (
+                          id, subject_type, subject_id, canonical_url, display_name,
+                          source_type, tracking_status, last_checked_at, active
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING
+                          id, subject_type, subject_id, canonical_url, display_name,
+                          source_type, tracking_status, last_checked_at, active, created_at;
+                        """,
+                        (
+                            tracked_policy_id,
+                            subject_type,
+                            subject_id,
+                            canonical_url,
+                            display_name,
+                            source_type,
+                            normalized_status.value,
+                            last_checked_at,
+                            active,
+                        ),
+                    )
+                    row = cursor.fetchone()
+                conn.commit()
+        except psycopg_errors.UniqueViolation as error:
+            raise ActiveTrackedPolicyConflictError(
+                "An active tracked policy already exists for this canonical URL."
+            ) from error
+
+        return _tracked_policy_from_row(row)
+
+    def list_active_for_subject(
+        self, *, subject_type: str, subject_id: str
+    ) -> list[StoredTrackedPolicy]:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      id, subject_type, subject_id, canonical_url, display_name,
+                      source_type, tracking_status, last_checked_at, active, created_at
+                    FROM tracked_policies
+                    WHERE subject_type = %s AND subject_id = %s AND active = TRUE
+                    ORDER BY created_at DESC;
+                    """,
+                    (subject_type, subject_id),
+                )
+                rows = cursor.fetchall()
+        return [_tracked_policy_from_row(row) for row in rows]
+
+    def get_active_for_subject(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicy | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      id, subject_type, subject_id, canonical_url, display_name,
+                      source_type, tracking_status, last_checked_at, active, created_at
+                    FROM tracked_policies
+                    WHERE id = %s AND subject_type = %s AND subject_id = %s AND active = TRUE;
+                    """,
+                    (tracked_policy_id, subject_type, subject_id),
+                )
+                row = cursor.fetchone()
+        return _tracked_policy_from_row(row) if row else None
+
+    def get_active_by_canonical_url_for_subject(
+        self,
+        *,
+        canonical_url: str,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicy | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      id, subject_type, subject_id, canonical_url, display_name,
+                      source_type, tracking_status, last_checked_at, active, created_at
+                    FROM tracked_policies
+                    WHERE canonical_url = %s AND subject_type = %s AND subject_id = %s AND active = TRUE;
+                    """,
+                    (canonical_url, subject_type, subject_id),
+                )
+                row = cursor.fetchone()
+        return _tracked_policy_from_row(row) if row else None
+
+    def deactivate_for_subject(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicy | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE tracked_policies
+                    SET active = FALSE
+                    WHERE id = %s AND subject_type = %s AND subject_id = %s AND active = TRUE
+                    RETURNING
+                      id, subject_type, subject_id, canonical_url, display_name,
+                      source_type, tracking_status, last_checked_at, active, created_at;
+                    """,
+                    (tracked_policy_id, subject_type, subject_id),
+                )
+                row = cursor.fetchone()
+            conn.commit()
+        return _tracked_policy_from_row(row) if row else None
+
+
 def _agreement_from_row(row: dict | None) -> StoredAgreement:
     """Map a DB row dict to `StoredAgreement`."""
 
@@ -308,4 +484,23 @@ def _report_from_row(row: dict | None) -> StoredReport:
         flagged_clauses=flagged_clauses,
         created_at=row["created_at"],
         completed_at=row["completed_at"],
+    )
+
+
+def _tracked_policy_from_row(row: dict | None) -> StoredTrackedPolicy:
+    """Map a DB row dict to `StoredTrackedPolicy`."""
+
+    if row is None:
+        raise ValueError("Tracked policy row cannot be None.")
+    return StoredTrackedPolicy(
+        id=row["id"],
+        subject_type=row["subject_type"],
+        subject_id=row["subject_id"],
+        canonical_url=row["canonical_url"],
+        display_name=row["display_name"],
+        source_type=row["source_type"],
+        tracking_status=normalize_policy_tracking_status(row["tracking_status"]),
+        last_checked_at=row["last_checked_at"],
+        active=row["active"],
+        created_at=row["created_at"],
     )

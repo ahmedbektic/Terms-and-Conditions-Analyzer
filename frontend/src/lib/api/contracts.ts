@@ -18,6 +18,20 @@ export interface AgreementResponse {
   created_at: string;
 }
 
+export interface TrackedPolicyCreateRequest {
+  source_url: string;
+}
+
+export interface TrackedPolicyResponse {
+  id: string;
+  canonical_url: string;
+  display_name: string;
+  source_type: string;
+  tracking_status: string;
+  last_checked_at: string | null;
+  created_at: string;
+}
+
 export interface AnalysisTriggerRequest {
   trigger: 'manual';
 }

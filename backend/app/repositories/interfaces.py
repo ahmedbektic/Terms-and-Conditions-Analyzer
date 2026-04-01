@@ -10,7 +10,8 @@ from typing import Protocol
 from uuid import UUID
 
 from .analysis_status import AnalysisLifecycleStatus
-from .models import StoredAgreement, StoredFlaggedClause, StoredReport
+from .models import StoredAgreement, StoredFlaggedClause, StoredReport, StoredTrackedPolicy
+from .policy_tracking_status import PolicyTrackingStatus
 
 
 class AgreementRepository(Protocol):
@@ -65,3 +66,48 @@ class ReportRepository(Protocol):
         subject_type: str,
         subject_id: str,
     ) -> StoredReport | None: ...
+
+
+class TrackedPolicyRepository(Protocol):
+    """Persistence operations for active/inactive tracked policy watchlist rows."""
+
+    def create(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        canonical_url: str,
+        display_name: str,
+        source_type: str,
+        tracking_status: PolicyTrackingStatus,
+        last_checked_at: datetime | None,
+        active: bool = True,
+    ) -> StoredTrackedPolicy: ...
+
+    def list_active_for_subject(
+        self, *, subject_type: str, subject_id: str
+    ) -> list[StoredTrackedPolicy]: ...
+
+    def get_active_for_subject(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicy | None: ...
+
+    def get_active_by_canonical_url_for_subject(
+        self,
+        *,
+        canonical_url: str,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicy | None: ...
+
+    def deactivate_for_subject(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicy | None: ...

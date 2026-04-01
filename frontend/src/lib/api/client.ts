@@ -11,10 +11,13 @@ import type {
   ReportAnalyzeRequest,
   ReportListItemResponse,
   ReportResponse,
+  TrackedPolicyCreateRequest,
+  TrackedPolicyResponse,
 } from './contracts';
 import {
   sanitizeAgreementCreateInput,
   sanitizeReportAnalyzeInput,
+  sanitizeTrackedPolicyCreateInput,
   validateUuid,
 } from '../security/inputValidation';
 
@@ -76,6 +79,27 @@ export class DashboardApiClient {
 
   async listReports(): Promise<ReportListItemResponse[]> {
     return this.request<ReportListItemResponse[]>('/reports');
+  }
+
+  async createTrackedPolicy(payload: TrackedPolicyCreateRequest): Promise<TrackedPolicyResponse> {
+    const sanitizedPayload = sanitizeTrackedPolicyCreateInput(payload);
+    return this.request<TrackedPolicyResponse>('/tracked-policies', {
+      method: 'POST',
+      body: JSON.stringify(sanitizedPayload),
+    });
+  }
+
+  async listTrackedPolicies(): Promise<TrackedPolicyResponse[]> {
+    return this.request<TrackedPolicyResponse[]>('/tracked-policies');
+  }
+
+  async removeTrackedPolicy(trackedPolicyId: string): Promise<void> {
+    await this.request<void>(
+      `/tracked-policies/${validateUuid(trackedPolicyId, 'Tracked policy id')}`,
+      {
+        method: 'DELETE',
+      },
+    );
   }
 
   async submitAndAnalyze(payload: ReportAnalyzeRequest): Promise<ReportResponse> {

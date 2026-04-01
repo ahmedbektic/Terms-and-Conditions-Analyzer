@@ -4,7 +4,11 @@
  * payloads before they hit the network and keep web/extension behavior aligned.
  */
 
-import type { AgreementCreateRequest, ReportAnalyzeRequest } from '../api/contracts';
+import type {
+  AgreementCreateRequest,
+  ReportAnalyzeRequest,
+  TrackedPolicyCreateRequest,
+} from '../api/contracts';
 import type { PasswordCredentials } from '../auth/contracts';
 
 export const MAX_TITLE_LENGTH = 200;
@@ -63,6 +67,19 @@ export function sanitizeAgreementCreateInput(
     source_url: sanitizeOptionalSourceUrl(input.source_url ?? null),
     agreed_at: sanitizeOptionalIsoDateTime(input.agreed_at ?? null),
     terms_text: sanitizeTermsText(input.terms_text),
+  };
+}
+
+export function sanitizeTrackedPolicyCreateInput(
+  input: TrackedPolicyCreateRequest,
+): TrackedPolicyCreateRequest {
+  const sourceUrl = sanitizeOptionalSourceUrl(input.source_url);
+  if (!sourceUrl) {
+    throw new Error('Source URL is required.');
+  }
+
+  return {
+    source_url: sourceUrl,
   };
 }
 

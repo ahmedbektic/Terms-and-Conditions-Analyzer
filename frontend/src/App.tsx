@@ -5,11 +5,14 @@
 
 import { AuthProvider } from './features/auth/AuthProvider';
 import { AuthEntryPoint } from './features/auth/AuthEntryPoint';
+import { ThemeProvider } from './features/theme/ThemeProvider';
 
 export function App() {
   return (
-    <AuthProvider>
-      <AuthEntryPoint />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AuthEntryPoint />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

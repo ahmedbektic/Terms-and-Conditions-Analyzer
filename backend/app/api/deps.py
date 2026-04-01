@@ -17,14 +17,18 @@ from ..core.config import settings
 from ..repositories.in_memory import (
     InMemoryAgreementRepository,
     InMemoryReportRepository,
+    InMemoryTrackedPolicyRepository,
     InMemoryStorage,
 )
 from ..services.ai_provider import AnalysisProviderRuntimeConfig, build_analysis_provider
-from ..services.analysis_service import AnalysisOrchestrationService, RequestSubject
+from ..services.analysis_service import AnalysisOrchestrationService
 from ..services.content_ingestion import ContentIngestionService
 from ..services.analysis_execution import build_analysis_execution_strategy
 from ..security import RequestRateLimiter, build_default_rate_limit_policies
+from ..services.request_subject import RequestSubject
 from ..services.submission_preparation import SubmissionPreparationService
+from ..services.tracked_policy_service import TrackedPolicyService
+from ..services.web_source import PublicWebSourceInspector
 
 
 def _build_persistence_dependencies():
@@ -41,6 +45,7 @@ def _build_persistence_dependencies():
         from ..persistence.postgres import (  # Imported lazily to keep memory-mode lightweight.
             PostgresAgreementRepository,
             PostgresReportRepository,
+            PostgresTrackedPolicyRepository,
             PostgresStorage,
         )
 
@@ -50,7 +55,8 @@ def _build_persistence_dependencies():
         )
         agreement_repository = PostgresAgreementRepository(storage)
         report_repository = PostgresReportRepository(storage)
-        return agreement_repository, report_repository, storage
+        tracked_policy_repository = PostgresTrackedPolicyRepository(storage)
+        return agreement_repository, report_repository, tracked_policy_repository, storage
 
     if backend not in {"memory", ""}:
         raise RuntimeError(
@@ -60,10 +66,16 @@ def _build_persistence_dependencies():
     storage = InMemoryStorage()
     agreement_repository = InMemoryAgreementRepository(storage)
     report_repository = InMemoryReportRepository(storage)
-    return agreement_repository, report_repository, storage
+    tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
+    return agreement_repository, report_repository, tracked_policy_repository, storage
 
 
-_agreement_repository, _report_repository, _persistence_storage = _build_persistence_dependencies()
+(
+    _agreement_repository,
+    _report_repository,
+    _tracked_policy_repository,
+    _persistence_storage,
+) = _build_persistence_dependencies()
 
 
 def _build_subject_resolver() -> AuthSubjectResolver:
@@ -122,11 +134,16 @@ _content_ingestion_service = ContentIngestionService()
 _submission_preparation_service = SubmissionPreparationService(
     content_ingestion_service=_content_ingestion_service
 )
+_public_web_source_inspector = PublicWebSourceInspector()
 _analysis_service = AnalysisOrchestrationService(
     agreement_repository=_agreement_repository,
     report_repository=_report_repository,
     analysis_execution_strategy=_analysis_execution_strategy,
     submission_preparation_service=_submission_preparation_service,
+)
+_tracked_policy_service = TrackedPolicyService(
+    tracked_policy_repository=_tracked_policy_repository,
+    public_web_source_inspector=_public_web_source_inspector,
 )
 
 
@@ -134,6 +151,12 @@ def get_analysis_service() -> AnalysisOrchestrationService:
     """Return the singleton orchestration service used by request handlers."""
 
     return _analysis_service
+
+
+def get_tracked_policy_service() -> TrackedPolicyService:
+    """Return the singleton tracked-policy service used by request handlers."""
+
+    return _tracked_policy_service
 
 
 def get_request_rate_limiter() -> RequestRateLimiter:

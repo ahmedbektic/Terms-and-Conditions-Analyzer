@@ -5,6 +5,7 @@ import type { Mock } from 'vitest';
 
 import { AuthEntryPoint } from '../src/features/auth/AuthEntryPoint';
 import { AuthProvider } from '../src/features/auth/AuthProvider';
+import { THEME_STORAGE_KEY, ThemeProvider } from '../src/features/theme/ThemeProvider';
 import type {
   AuthClient,
   AuthStateChange,
@@ -90,9 +91,11 @@ function createAuthClientHarness(
 
 function renderAuthEntryPoint(harness: AuthClientHarness) {
   return render(
-    <AuthProvider authClient={harness.client}>
-      <AuthEntryPoint />
-    </AuthProvider>,
+    <ThemeProvider>
+      <AuthProvider authClient={harness.client}>
+        <AuthEntryPoint />
+      </AuthProvider>
+    </ThemeProvider>,
   );
 }
 
@@ -101,6 +104,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   window.localStorage.clear();
+  delete document.documentElement.dataset.theme;
 });
 
 describe('AuthEntryPoint', () => {
@@ -112,6 +116,7 @@ describe('AuthEntryPoint', () => {
     await waitFor(() =>
       expect(screen.getByText('Sign in to Terms and Conditions Analyzer')).toBeTruthy(),
     );
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
   });
 
@@ -193,6 +198,38 @@ describe('AuthEntryPoint', () => {
 
     await waitFor(() => expect(screen.getByText('Terms and Conditions Dashboard')).toBeTruthy());
     expect(screen.getByText('Signed in as auth-user@example.com')).toBeTruthy();
+  });
+
+  it('defaults to dark mode and lets authenticated users toggle the dashboard theme', async () => {
+    const harness = createAuthClientHarness(
+      buildSession({
+        userId: 'themed-user',
+        accessToken: 'themed-session-token',
+        email: 'themed@example.com',
+      }),
+    );
+    const user = userEvent.setup();
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/reports')) {
+        return jsonResponse([]);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderAuthEntryPoint(harness);
+
+    await waitFor(() => expect(screen.getByText('Terms and Conditions Dashboard')).toBeTruthy());
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+
+    await user.click(screen.getByRole('button', { name: 'Switch to light mode' }));
+
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
+    expect(screen.getByRole('button', { name: 'Switch to dark mode' })).toBeTruthy();
   });
 
   it('surfaces denied access errors on the login screen', async () => {

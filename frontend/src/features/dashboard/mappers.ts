@@ -5,11 +5,13 @@
 import type {
   ReportListItemResponse,
   ReportResponse,
+  TrackedPolicyResponse,
 } from '../../lib/api/contracts';
 import type {
   DashboardFlaggedClause,
   DashboardReport,
   DashboardReportListItem,
+  DashboardTrackedPolicy,
 } from './types';
 
 function mapFlaggedClause(clause: ReportResponse['flagged_clauses'][number]): DashboardFlaggedClause {
@@ -48,6 +50,18 @@ export function mapReportListItem(response: ReportListItemResponse): DashboardRe
     status: response.status,
     trustScore: response.trust_score,
     modelName: response.model_name,
+    createdAt: response.created_at,
+  };
+}
+
+export function mapTrackedPolicy(response: TrackedPolicyResponse): DashboardTrackedPolicy {
+  return {
+    id: response.id,
+    canonicalUrl: response.canonical_url,
+    displayName: response.display_name,
+    sourceType: response.source_type,
+    trackingStatus: response.tracking_status,
+    lastCheckedAt: response.last_checked_at,
     createdAt: response.created_at,
   };
 }
