@@ -151,9 +151,9 @@ def canonicalize_public_source_url(value: str) -> str:
     normalized_hostname = (parsed.hostname or "").lower()
     normalized_port = parsed.port
 
-    if (
-        normalized_port is not None
-        and ((normalized_scheme == "http" and normalized_port == 80) or (normalized_scheme == "https" and normalized_port == 443))
+    if normalized_port is not None and (
+        (normalized_scheme == "http" and normalized_port == 80)
+        or (normalized_scheme == "https" and normalized_port == 443)
     ):
         normalized_port = None
 
@@ -164,9 +164,7 @@ def canonicalize_public_source_url(value: str) -> str:
         doseq=True,
     )
 
-    return urlunsplit(
-        (normalized_scheme, normalized_netloc, normalized_path, normalized_query, "")
-    )
+    return urlunsplit((normalized_scheme, normalized_netloc, normalized_path, normalized_query, ""))
 
 
 class PublicWebSourceInspector:
@@ -203,9 +201,7 @@ class PublicWebSourceInspector:
             body_text=payload.body_text,
             content_type=payload.content_type,
         ):
-            raise WebSourceInspectionError(
-                "That URL does not appear to be a readable policy page."
-            )
+            raise WebSourceInspectionError("That URL does not appear to be a readable policy page.")
         if len(extracted_text) < MIN_TRACKABLE_SOURCE_TEXT_LENGTH:
             raise WebSourceInspectionError(
                 "That page did not contain enough readable policy text to track."

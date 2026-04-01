@@ -71,9 +71,7 @@ class TrackedPolicyService:
             )
         )
         if existing_tracked_policy is not None:
-            raise DuplicateTrackedPolicyError(
-                "That policy is already in your watchlist."
-            )
+            raise DuplicateTrackedPolicyError("That policy is already in your watchlist.")
 
         try:
             inspected_source = self._public_web_source_inspector.inspect_url(
@@ -115,6 +113,4 @@ class TrackedPolicyService:
             subject_id=subject.subject_id,
         )
         if deactivated_policy is None:
-            raise TrackedPolicyNotFoundError(
-                f"Tracked policy {tracked_policy_id} was not found."
-            )
+            raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")

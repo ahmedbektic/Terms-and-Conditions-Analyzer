@@ -243,16 +243,22 @@ def test_tracked_policy_repository_scopes_active_policies_by_owner_and_hides_ina
 
     assert deactivated_policy is not None
     assert deactivated_policy.active is False
-    assert repository.list_active_for_subject(
-        subject_type="supabase_user",
-        subject_id="user-a",
-    ) == []
-    assert len(
+    assert (
         repository.list_active_for_subject(
             subject_type="supabase_user",
-            subject_id="user-b",
+            subject_id="user-a",
         )
-    ) == 1
+        == []
+    )
+    assert (
+        len(
+            repository.list_active_for_subject(
+                subject_type="supabase_user",
+                subject_id="user-b",
+            )
+        )
+        == 1
+    )
 
 
 def test_tracked_policy_repository_lists_newest_active_first() -> None:
