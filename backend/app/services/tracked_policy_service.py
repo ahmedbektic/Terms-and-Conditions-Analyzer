@@ -116,7 +116,9 @@ class TrackedPolicyService:
         if deactivated_policy is None:
             raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
 
-    def check_tracked_policy(self, *, subject: RequestSubject, tracked_policy_id: UUID) -> StoredTrackedPolicy:
+    def check_tracked_policy(
+        self, *, subject: RequestSubject, tracked_policy_id: UUID
+    ) -> StoredTrackedPolicy:
         """Fetch current policy text, store a new snapshot when it changes, and refresh status."""
 
         existing = self._tracked_policy_repository.get_active_for_subject(
@@ -141,7 +143,9 @@ class TrackedPolicyService:
                 tracking_status=PolicyTrackingStatus.INVALID_SOURCE,
             )
             if updated is None:
-                raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
+                raise TrackedPolicyNotFoundError(
+                    f"Tracked policy {tracked_policy_id} was not found."
+                )
             return updated
 
         self._tracked_policy_repository.append_snapshot_if_text_changed(

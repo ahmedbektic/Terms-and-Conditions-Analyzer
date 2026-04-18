@@ -22,10 +22,15 @@ Use these settings when you create the Blueprint-backed service:
 Set these Render environment variables before first real use:
 
 - `PERSISTENCE_BACKEND=postgres`
-- `SUPABASE_DATABASE_URL=<your-supabase-postgres-connection-string>` or `DATABASE_URL=...`
+- `SUPABASE_DATABASE_URL=<exact Supabase Session pooler connection string>` or `DATABASE_URL=...`
 - `SUPABASE_URL=https://<your-project-ref>.supabase.co`
 - `CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173[,chrome-extension://<your-extension-id>]`
 - Rate-limit defaults are enabled in the backend; tune `API_RATE_LIMIT_*`, `AGREEMENT_CREATE_RATE_LIMIT_*`, and `ANALYSIS_*RATE_LIMIT*` in Render if your demo traffic needs a different budget.
+
+Connection note:
+
+- Copy the `Session pooler` value from the Supabase dashboard for Render and local Docker flows.
+- Avoid the direct `db.<project-ref>.supabase.co` database host unless the runtime is confirmed to support IPv6.
 
 Set these auth variables if you are not relying on the `SUPABASE_URL` derived defaults:
 

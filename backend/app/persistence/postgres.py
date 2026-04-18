@@ -8,6 +8,7 @@ implementations can be swapped via configuration.
 from contextlib import contextmanager
 from datetime import datetime
 import json
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import psycopg
@@ -101,6 +102,37 @@ CREATE INDEX IF NOT EXISTS idx_policy_snapshots_policy_captured
 """
 
 
+def _database_hostname(database_url: str) -> str:
+    """Extract the hostname from a Postgres connection string."""
+
+    return urlsplit(database_url).hostname or ""
+
+
+def _is_direct_supabase_database_host(hostname: str) -> bool:
+    """Return True when the host matches Supabase's direct IPv6 endpoint pattern."""
+
+    normalized = hostname.strip().lower()
+    return normalized.startswith("db.") and normalized.endswith(".supabase.co")
+
+
+def _build_database_connection_error_message(
+    database_url: str,
+    error: Exception,
+) -> str:
+    """Build an actionable startup error without leaking credentials."""
+
+    hostname = _database_hostname(database_url) or "<unknown>"
+    message = f"Postgres connection failed for host '{hostname}': {error}"
+    if _is_direct_supabase_database_host(hostname):
+        message = (
+            f"{message} The configured hostname looks like Supabase's direct database endpoint, "
+            "which uses IPv6. For Docker, Render, and other IPv4-only environments, update "
+            "SUPABASE_DATABASE_URL or DATABASE_URL to the exact 'Session pooler' connection "
+            "string from the Supabase dashboard."
+        )
+    return message
+
+
 class PostgresStorage:
     """Connection and schema utility for Postgres-backed repositories."""
 
@@ -113,8 +145,13 @@ class PostgresStorage:
     def connection(self):
         """Yield a short-lived database connection."""
 
-        with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
-            yield conn
+        try:
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                yield conn
+        except psycopg.OperationalError as error:
+            raise psycopg.OperationalError(
+                _build_database_connection_error_message(self._database_url, error)
+            ) from error
 
     def ensure_schema(self) -> None:
         """Create required tables/indexes if they do not already exist."""

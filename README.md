@@ -169,6 +169,8 @@ Assume Git Bash on Windows unless noted otherwise. Run commands from the reposit
   - `docker compose up --build`
   - `docker compose down`
 
+If `backend/.env` switches `PERSISTENCE_BACKEND` to `postgres`, prefer the exact Supabase `Session pooler` connection string. The direct `db.<project-ref>.supabase.co` host uses IPv6 and often fails inside Docker or other IPv4-only environments with `Network is unreachable`.
+
 CI currently runs:
 
 - Tooling/infrastructure: `docker compose config`, Bash helper syntax check, PowerShell helper smoke run
@@ -297,7 +299,7 @@ See:
 Key backend env vars:
 
 - `PERSISTENCE_BACKEND` = `memory` or `postgres`
-- `SUPABASE_DATABASE_URL` (preferred Postgres URI)
+- `SUPABASE_DATABASE_URL` (preferred Postgres URI; use the Supabase `Session pooler` string for Docker, Render, or other IPv4-only environments)
 - `DATABASE_URL` (fallback Postgres URI)
 - `POSTGRES_AUTO_CREATE_SCHEMA` = `true`/`false`
 

@@ -248,9 +248,7 @@ class InMemoryTrackedPolicyRepository:
         if tracked_policy is None:
             return None
         count = len(self._storage.policy_snapshots.get(tracked_policy_id, []))
-        deactivated_policy = replace(
-            tracked_policy, active=False, snapshot_version_count=count
-        )
+        deactivated_policy = replace(tracked_policy, active=False, snapshot_version_count=count)
         self._storage.tracked_policies[tracked_policy_id] = deactivated_policy
         return deactivated_policy
 

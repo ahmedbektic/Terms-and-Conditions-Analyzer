@@ -209,9 +209,7 @@ class PublicWebSourceInspector:
         _, extracted_text = self._fetch_extract_and_validate(canonical_url=url)
         return extracted_text
 
-    def _fetch_extract_and_validate(
-        self, *, canonical_url: str
-    ) -> tuple[UrlFetchPayload, str]:
+    def _fetch_extract_and_validate(self, *, canonical_url: str) -> tuple[UrlFetchPayload, str]:
         try:
             payload = self._url_content_fetcher.fetch(url=canonical_url)
         except (httpx.HTTPError, ValueError) as error:
