@@ -10,10 +10,12 @@ from uuid import UUID, uuid4
 
 from .analysis_status import AnalysisLifecycleStatus, normalize_analysis_lifecycle_status
 from .models import (
+    PolicyChangeEventCreateInput,
     PolicySnapshotAppendResult,
     PolicySnapshotCreateInput,
     StoredAgreement,
     StoredFlaggedClause,
+    StoredPolicyChangeEvent,
     StoredPolicySnapshot,
     StoredReport,
     StoredTrackedPolicy,
@@ -24,6 +26,7 @@ from .policy_capture_status import (
     normalize_policy_capture_status,
     normalize_policy_snapshot_status,
 )
+from .policy_change_status import PolicyChangeStatus, normalize_policy_change_status
 from .policy_snapshot_hash import build_policy_snapshot_content_hash
 from .policy_tracking_status import PolicyTrackingStatus, normalize_policy_tracking_status
 from .report_capture_kind import (
@@ -40,12 +43,14 @@ class InMemoryStorage:
         self.reports: dict[UUID, StoredReport] = {}
         self.tracked_policies: dict[UUID, StoredTrackedPolicy] = {}
         self.policy_snapshots: dict[UUID, list[StoredPolicySnapshot]] = {}
+        self.policy_change_events: dict[UUID, list[StoredPolicyChangeEvent]] = {}
 
     def clear(self) -> None:
         self.agreements.clear()
         self.reports.clear()
         self.tracked_policies.clear()
         self.policy_snapshots.clear()
+        self.policy_change_events.clear()
 
 
 class InMemoryAgreementRepository:
@@ -230,6 +235,8 @@ class InMemoryTrackedPolicyRepository:
             last_successful_capture_at=None,
             latest_capture_status=PolicyCaptureStatus.NEVER_CAPTURED,
             latest_capture_message=None,
+            latest_change_status=PolicyChangeStatus.NOT_EVALUATED,
+            latest_change_detected_at=None,
             active=active,
             created_at=datetime.now(timezone.utc),
             snapshot_version_count=0,
@@ -313,6 +320,8 @@ class InMemoryTrackedPolicyRepository:
         tracking_status: PolicyTrackingStatus,
         latest_capture_status: PolicyCaptureStatus,
         latest_capture_message: str | None,
+        latest_change_status: PolicyChangeStatus,
+        latest_change_detected_at: datetime | None,
     ) -> StoredTrackedPolicy | None:
         tracked_policy = self.get_active_for_subject(
             tracked_policy_id=tracked_policy_id,
@@ -337,6 +346,8 @@ class InMemoryTrackedPolicyRepository:
             last_successful_capture_at=last_successful_capture_at,
             latest_capture_status=normalized_capture_status,
             latest_capture_message=latest_capture_message,
+            latest_change_status=normalize_policy_change_status(latest_change_status),
+            latest_change_detected_at=latest_change_detected_at,
         )
         self._storage.tracked_policies[tracked_policy_id] = updated
         return self._hydrate_tracked_policy(updated)
@@ -423,3 +434,59 @@ class InMemoryPolicySnapshotRepository:
     ) -> list[StoredPolicySnapshot]:
         snapshots = self._storage.policy_snapshots.get(tracked_policy_id, [])
         return list(reversed(snapshots))
+
+    def delete_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        snapshot_id: UUID,
+    ) -> bool:
+        snapshots = self._storage.policy_snapshots.get(tracked_policy_id, [])
+        for index, snapshot in enumerate(snapshots):
+            if snapshot.id == snapshot_id:
+                del snapshots[index]
+                return True
+        return False
+
+
+class InMemoryPolicyChangeEventRepository:
+    """In-memory tracked-policy change-event repository implementation."""
+
+    def __init__(self, storage: InMemoryStorage) -> None:
+        self._storage = storage
+
+    def create(self, *, event: PolicyChangeEventCreateInput) -> StoredPolicyChangeEvent:
+        stored_event = StoredPolicyChangeEvent(
+            id=uuid4(),
+            tracked_policy_id=event.tracked_policy_id,
+            previous_snapshot_id=event.previous_snapshot_id,
+            new_snapshot_id=event.new_snapshot_id,
+            detected_at=event.detected_at,
+            change_status=normalize_policy_change_status(event.change_status),
+            detection_method=event.detection_method,
+            content_changed=event.content_changed,
+            previous_section_count=event.previous_section_count,
+            new_section_count=event.new_section_count,
+            section_delta=event.section_delta,
+        )
+        stored_events = self._storage.policy_change_events.setdefault(event.tracked_policy_id, [])
+        stored_events.append(stored_event)
+        return stored_event
+
+    def get_latest_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> StoredPolicyChangeEvent | None:
+        events = self._storage.policy_change_events.get(tracked_policy_id, [])
+        if not events:
+            return None
+        return events[-1]
+
+    def list_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> list[StoredPolicyChangeEvent]:
+        events = self._storage.policy_change_events.get(tracked_policy_id, [])
+        return list(reversed(events))

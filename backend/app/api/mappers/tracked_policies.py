@@ -18,6 +18,8 @@ def to_tracked_policy_response(tracked_policy: StoredTrackedPolicy) -> TrackedPo
         last_successful_capture_at=tracked_policy.last_successful_capture_at,
         latest_capture_status=tracked_policy.latest_capture_status.value,
         latest_capture_message=tracked_policy.latest_capture_message,
+        latest_change_status=tracked_policy.latest_change_status.value,
+        latest_change_detected_at=tracked_policy.latest_change_detected_at,
         created_at=tracked_policy.created_at,
         snapshot_version_count=tracked_policy.snapshot_version_count,
     )
@@ -39,6 +41,8 @@ def to_tracked_policy_create_response(
         last_successful_capture_at=tracked_policy.last_successful_capture_at,
         latest_capture_status=tracked_policy.latest_capture_status.value,
         latest_capture_message=tracked_policy.latest_capture_message,
+        latest_change_status=tracked_policy.latest_change_status.value,
+        latest_change_detected_at=tracked_policy.latest_change_detected_at,
         created_at=tracked_policy.created_at,
         snapshot_version_count=tracked_policy.snapshot_version_count,
         baseline_report_id=enrollment_result.baseline_report.id,

@@ -20,13 +20,18 @@ from typing import Literal
 from uuid import UUID
 
 from ..repositories.errors import ActiveTrackedPolicyConflictError
-from ..repositories.interfaces import PolicySnapshotRepository, TrackedPolicyRepository
+from ..repositories.interfaces import (
+    PolicyChangeEventRepository,
+    PolicySnapshotRepository,
+    TrackedPolicyRepository,
+)
 from ..repositories.models import (
     PolicySnapshotCreateInput,
     StoredReport,
     StoredTrackedPolicy,
 )
 from ..repositories.policy_capture_status import PolicyCaptureStatus
+from ..repositories.policy_change_status import PolicyChangeStatus
 from ..repositories.policy_tracking_status import PolicyTrackingStatus
 from .analysis_service import (
     AgreementNotFoundError,
@@ -85,6 +90,7 @@ class TrackedPolicyService:
         tracked_policy_repository: TrackedPolicyRepository,
         policy_snapshot_repository: PolicySnapshotRepository,
         analysis_service: AnalysisOrchestrationService,
+        policy_change_event_repository: PolicyChangeEventRepository | None = None,
         public_web_source_inspector: PublicWebSourceInspector | None = None,
         policy_snapshot_service: PolicySnapshotService | None = None,
     ) -> None:
@@ -97,6 +103,7 @@ class TrackedPolicyService:
         self._policy_snapshot_service = policy_snapshot_service or PolicySnapshotService(
             tracked_policy_repository=tracked_policy_repository,
             policy_snapshot_repository=policy_snapshot_repository,
+            policy_change_event_repository=policy_change_event_repository,
             analysis_service=analysis_service,
             public_web_source_inspector=self._public_web_source_inspector,
         )
@@ -194,6 +201,8 @@ class TrackedPolicyService:
             tracking_status=PolicyTrackingStatus.ACTIVE,
             latest_capture_status=PolicyCaptureStatus.CAPTURED,
             latest_capture_message=None,
+            latest_change_status=PolicyChangeStatus.NOT_EVALUATED,
+            latest_change_detected_at=None,
         )
         if hydrated_tracked_policy is None:
             raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy.id} was not found.")

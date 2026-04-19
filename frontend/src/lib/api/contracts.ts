@@ -32,6 +32,8 @@ export interface TrackedPolicyResponse {
   last_successful_capture_at: string | null;
   latest_capture_status: string;
   latest_capture_message: string | null;
+  latest_change_status: string;
+  latest_change_detected_at: string | null;
   created_at: string;
   snapshot_version_count: number;
 }

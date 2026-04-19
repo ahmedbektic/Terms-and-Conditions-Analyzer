@@ -76,6 +76,8 @@ function buildTrackedPolicy(overrides?: Partial<TrackedPolicyResponse>): Tracked
     last_successful_capture_at: '2026-03-24T15:30:00Z',
     latest_capture_status: 'captured',
     latest_capture_message: null,
+    latest_change_status: 'not_evaluated',
+    latest_change_detected_at: null,
     created_at: '2026-03-24T15:30:00Z',
     snapshot_version_count: 1,
     ...overrides,
@@ -385,9 +387,11 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Example Terms')).toBeTruthy();
     expect(screen.getAllByText('https://example.com/legal/terms').length).toBeGreaterThan(0);
     expect(screen.getByText(/active/i)).toBeTruthy();
+    expect(screen.getByText(/not evaluated/i)).toBeTruthy();
     expect(screen.getByText('1 stored version')).toBeTruthy();
     expect(screen.getByText(/Last check attempt:/i)).toBeTruthy();
     expect(screen.getByText(/Last successful capture:/i)).toBeTruthy();
+    expect(screen.getByText(/Last detected change:/i)).toBeTruthy();
     expect(
       screen.getByText(
         'Stored versions come from watchlist captures. Saved reports remain separate in report history and can still be selected independently.',
@@ -564,6 +568,7 @@ describe('DashboardPage', () => {
       display_name: 'Example Terms',
       tracking_status: 'invalid_source',
       latest_capture_status: 'capture_failed',
+      latest_change_status: 'comparison_incomplete',
       latest_capture_message:
         'That policy page is blocking access. Use a public terms or privacy page that does not require sign-in.',
       snapshot_version_count: 1,
@@ -616,6 +621,7 @@ describe('DashboardPage', () => {
       ).toBeTruthy(),
     );
     expect(screen.getByText(/invalid source/i)).toBeTruthy();
+    expect(screen.getByText(/scan incomplete/i)).toBeTruthy();
     expect(
       screen.getAllByText(
         'That policy page is blocking access. Use a public terms or privacy page that does not require sign-in.',
@@ -639,8 +645,9 @@ describe('DashboardPage', () => {
       display_name: 'Example Terms',
       snapshot_version_count: 1,
       latest_capture_status: 'captured',
+      latest_change_status: 'unchanged',
       latest_capture_message:
-        'No policy text changes were detected, so no new stored version was created.',
+        'No meaningful policy changes were detected, so no new stored version was created.',
     });
     let trackedPolicyListCalls = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -677,11 +684,12 @@ describe('DashboardPage', () => {
     await waitFor(() =>
       expect(
         screen.getAllByText(
-          'No policy text changes were detected, so no new stored version was created.',
+          'No meaningful policy changes were detected, so no new stored version was created.',
         ).length,
       ).toBeTruthy(),
     );
     expect(screen.getByText('1 stored version')).toBeTruthy();
+    expect(screen.getByText(/unchanged/i)).toBeTruthy();
   });
 
   it('adds a tracked snapshot report to Saved Reports after a changed check and shows the compare placeholder', async () => {
@@ -712,6 +720,8 @@ describe('DashboardPage', () => {
       id: '20000000-0000-4000-8000-000000000011',
       canonical_url: 'https://concise.plus/terms.php',
       display_name: 'Terms of Service | Concise',
+      latest_change_status: 'updated',
+      latest_change_detected_at: '2026-03-25T09:00:00Z',
       snapshot_version_count: 2,
     });
     let reportListCalls = 0;
@@ -775,7 +785,13 @@ describe('DashboardPage', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Check now' }));
 
+    await waitFor(() =>
+      expect(
+        screen.getByText('Terms of Service | Concise was checked and a policy update was detected.'),
+      ).toBeTruthy(),
+    );
     await waitFor(() => expect(screen.getByText('Stored version #2')).toBeTruthy());
+    expect(screen.getByText(/updated/i)).toBeTruthy();
 
     await user.click(
       screen.getByRole('button', {

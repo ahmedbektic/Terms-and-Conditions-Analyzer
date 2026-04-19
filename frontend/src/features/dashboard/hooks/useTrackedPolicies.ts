@@ -100,6 +100,14 @@ export function useTrackedPolicies(apiClient: DashboardApiClient): UseTrackedPol
         setTrackedPolicies(trackedPoliciesResponse.map(mapTrackedPolicy));
         if (checkedTrackedPolicy.latest_capture_message) {
           setSuccessMessage(checkedTrackedPolicy.latest_capture_message);
+        } else if (checkedTrackedPolicy.latest_change_status === 'updated') {
+          setSuccessMessage(
+            `${checkedTrackedPolicy.display_name} was checked and a policy update was detected.`,
+          );
+        } else if (checkedTrackedPolicy.latest_change_status === 'not_evaluated') {
+          setSuccessMessage(
+            `${checkedTrackedPolicy.display_name} was checked and stored as its first tracked version.`,
+          );
         } else {
           const versionLabel =
             checkedTrackedPolicy.snapshot_version_count === 1

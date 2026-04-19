@@ -1,18 +1,24 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import time
 
 import pytest
 
 from app.repositories.in_memory import (
     InMemoryAgreementRepository,
+    InMemoryPolicyChangeEventRepository,
     InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryTrackedPolicyRepository,
     InMemoryStorage,
 )
 from app.repositories.analysis_status import AnalysisLifecycleStatus
-from app.repositories.models import PolicySnapshotCreateInput, StoredFlaggedClause
+from app.repositories.models import (
+    PolicyChangeEventCreateInput,
+    PolicySnapshotCreateInput,
+    StoredFlaggedClause,
+)
 from app.repositories.policy_capture_status import PolicyCaptureStatus, PolicySnapshotStatus
+from app.repositories.policy_change_status import PolicyChangeStatus
 from app.repositories.policy_tracking_status import PolicyTrackingStatus
 from app.repositories.report_capture_kind import ReportContentCaptureKind
 
@@ -519,6 +525,8 @@ def test_tracked_policy_repository_hydrates_capture_metadata_from_snapshots() ->
         tracking_status=PolicyTrackingStatus.ACTIVE,
         latest_capture_status=PolicyCaptureStatus.CAPTURED,
         latest_capture_message=None,
+        latest_change_status=PolicyChangeStatus.UPDATED,
+        latest_change_detected_at=captured_at,
     )
 
     assert updated_policy is not None
@@ -526,3 +534,63 @@ def test_tracked_policy_repository_hydrates_capture_metadata_from_snapshots() ->
     assert updated_policy.last_successful_capture_at == captured_at
     assert updated_policy.latest_capture_status == PolicyCaptureStatus.CAPTURED
     assert updated_policy.latest_capture_message is None
+    assert updated_policy.latest_change_status == PolicyChangeStatus.UPDATED
+    assert updated_policy.latest_change_detected_at == captured_at
+
+
+def test_policy_change_event_repository_returns_latest_event_first() -> None:
+    storage = InMemoryStorage()
+    change_event_repository = InMemoryPolicyChangeEventRepository(storage)
+    tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
+    tracked_policy = tracked_policy_repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        canonical_url="https://service-a.example/terms",
+        display_name="Service A Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.ACTIVE,
+        last_checked_at=datetime.now(timezone.utc),
+    )
+    first_detected_at = datetime.now(timezone.utc)
+    second_detected_at = first_detected_at + timedelta(seconds=1)
+
+    first_event = change_event_repository.create(
+        event=PolicyChangeEventCreateInput(
+            tracked_policy_id=tracked_policy.id,
+            previous_snapshot_id=None,
+            new_snapshot_id=None,
+            detected_at=first_detected_at,
+            change_status=PolicyChangeStatus.UNCHANGED,
+            detection_method="exact_hash_match",
+            content_changed=False,
+            previous_section_count=3,
+            new_section_count=3,
+            section_delta=0,
+        )
+    )
+    second_event = change_event_repository.create(
+        event=PolicyChangeEventCreateInput(
+            tracked_policy_id=tracked_policy.id,
+            previous_snapshot_id=None,
+            new_snapshot_id=None,
+            detected_at=second_detected_at,
+            change_status=PolicyChangeStatus.UPDATED,
+            detection_method="meaningful_text_change",
+            content_changed=True,
+            previous_section_count=3,
+            new_section_count=4,
+            section_delta=1,
+        )
+    )
+
+    latest_event = change_event_repository.get_latest_for_tracked_policy(
+        tracked_policy_id=tracked_policy.id
+    )
+    listed_events = change_event_repository.list_for_tracked_policy(
+        tracked_policy_id=tracked_policy.id
+    )
+
+    assert latest_event is not None
+    assert latest_event.id == second_event.id
+    assert listed_events[0].id == second_event.id
+    assert listed_events[1].id == first_event.id

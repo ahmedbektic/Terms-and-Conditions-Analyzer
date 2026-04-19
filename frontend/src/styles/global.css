@@ -723,6 +723,12 @@ textarea {
   text-transform: capitalize;
 }
 
+.watchlist-change-chip {
+  width: fit-content;
+  font-size: 0.72rem;
+  text-transform: capitalize;
+}
+
 .tracking-status-active {
   border-color: #b7d8c5;
   color: #25533d;
@@ -745,6 +751,30 @@ textarea {
   border-color: var(--border);
   color: var(--text-subtle);
   background: var(--surface);
+}
+
+.change-status-updated {
+  border-color: var(--tone-danger-border);
+  color: var(--tone-danger-text);
+  background: var(--tone-danger-bg);
+}
+
+.change-status-unchanged {
+  border-color: var(--tone-positive-border);
+  color: var(--tone-positive-text);
+  background: var(--tone-positive-bg);
+}
+
+.change-status-incomplete {
+  border-color: var(--tone-caution-border);
+  color: var(--tone-caution-text);
+  background: var(--tone-caution-bg);
+}
+
+.change-status-default {
+  border-color: #d6d7de;
+  color: #475366;
+  background: #f3f5f8;
 }
 
 .clause-item {

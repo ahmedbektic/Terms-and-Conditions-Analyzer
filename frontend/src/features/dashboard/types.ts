@@ -56,6 +56,8 @@ export interface DashboardTrackedPolicy {
   lastSuccessfulCaptureAt: string | null;
   latestCaptureStatus: string;
   latestCaptureMessage: string | null;
+  latestChangeStatus: string;
+  latestChangeDetectedAt: string | null;
   createdAt: string;
   snapshotVersionCount: number;
 }

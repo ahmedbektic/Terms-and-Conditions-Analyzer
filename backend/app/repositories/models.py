@@ -11,6 +11,7 @@ from uuid import UUID
 
 from .analysis_status import AnalysisLifecycleStatus
 from .policy_capture_status import PolicyCaptureStatus, PolicySnapshotStatus
+from .policy_change_status import PolicyChangeStatus
 from .policy_tracking_status import PolicyTrackingStatus
 from .report_capture_kind import ReportContentCaptureKind
 
@@ -79,6 +80,8 @@ class StoredTrackedPolicy:
     last_successful_capture_at: datetime | None
     latest_capture_status: PolicyCaptureStatus
     latest_capture_message: str | None
+    latest_change_status: PolicyChangeStatus
+    latest_change_detected_at: datetime | None
     active: bool
     created_at: datetime
     snapshot_version_count: int
@@ -129,3 +132,36 @@ class PolicySnapshotAppendResult:
 
     snapshot: StoredPolicySnapshot
     created: bool
+
+
+@dataclass(frozen=True)
+class PolicyChangeEventCreateInput:
+    """Write-model for one tracked-policy change-detection result."""
+
+    tracked_policy_id: UUID
+    previous_snapshot_id: UUID | None
+    new_snapshot_id: UUID | None
+    detected_at: datetime
+    change_status: PolicyChangeStatus
+    detection_method: str
+    content_changed: bool | None = None
+    previous_section_count: int | None = None
+    new_section_count: int | None = None
+    section_delta: int | None = None
+
+
+@dataclass(frozen=True)
+class StoredPolicyChangeEvent:
+    """Persisted change-detection result for one tracked-policy scan."""
+
+    id: UUID
+    tracked_policy_id: UUID
+    previous_snapshot_id: UUID | None
+    new_snapshot_id: UUID | None
+    detected_at: datetime
+    change_status: PolicyChangeStatus
+    detection_method: str
+    content_changed: bool | None
+    previous_section_count: int | None
+    new_section_count: int | None
+    section_delta: int | None

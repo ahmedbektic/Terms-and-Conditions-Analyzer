@@ -73,6 +73,8 @@ export function mapTrackedPolicy(response: TrackedPolicyResponse): DashboardTrac
     lastSuccessfulCaptureAt: response.last_successful_capture_at,
     latestCaptureStatus: response.latest_capture_status,
     latestCaptureMessage: response.latest_capture_message,
+    latestChangeStatus: response.latest_change_status,
+    latestChangeDetectedAt: response.latest_change_detected_at,
     createdAt: response.created_at,
     snapshotVersionCount: response.snapshot_version_count,
   };

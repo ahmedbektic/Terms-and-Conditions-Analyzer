@@ -21,6 +21,27 @@ interface WatchlistStatusNote {
   toneClassName: string;
 }
 
+function getChangeStatusChipClassName(changeStatus: string): string {
+  const normalizedStatus = changeStatus.toLowerCase();
+  if (normalizedStatus === 'updated') {
+    return 'change-status-updated';
+  }
+  if (normalizedStatus === 'unchanged') {
+    return 'change-status-unchanged';
+  }
+  if (normalizedStatus === 'comparison_incomplete') {
+    return 'change-status-incomplete';
+  }
+  return 'change-status-default';
+}
+
+function formatChangeStatusLabel(changeStatus: string): string {
+  if (changeStatus === 'comparison_incomplete') {
+    return 'Scan incomplete';
+  }
+  return changeStatus.replace(/_/g, ' ');
+}
+
 function getTrackingStatusChipClassName(trackingStatus: string): string {
   const normalizedStatus = trackingStatus.toLowerCase();
   if (normalizedStatus === 'active') {
@@ -191,6 +212,19 @@ export function TrackedPolicyWatchlistPanel({
                     {trackedPolicy.lastSuccessfulCaptureAt
                       ? formatDashboardDate(trackedPolicy.lastSuccessfulCaptureAt)
                       : 'Not yet'}
+                  </span>
+                  <span className="watchlist-meta">
+                    Last detected change:{' '}
+                    {trackedPolicy.latestChangeDetectedAt
+                      ? formatDashboardDate(trackedPolicy.latestChangeDetectedAt)
+                      : 'Not yet'}
+                  </span>
+                  <span
+                    className={`chip watchlist-change-chip ${getChangeStatusChipClassName(
+                      trackedPolicy.latestChangeStatus,
+                    )}`}
+                  >
+                    {formatChangeStatusLabel(trackedPolicy.latestChangeStatus)}
                   </span>
                   {statusNote ? (
                     <span className={`watchlist-note ${statusNote.toneClassName}`}>
