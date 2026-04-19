@@ -1,6 +1,7 @@
 """Pydantic request/response contracts for tracked-policy watchlist endpoints."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
@@ -32,5 +33,15 @@ class TrackedPolicyResponse(BaseModel):
     source_type: str
     tracking_status: str
     last_checked_at: datetime | None
+    last_successful_capture_at: datetime | None
+    latest_capture_status: str
+    latest_capture_message: str | None
     created_at: datetime
     snapshot_version_count: int
+
+
+class TrackedPolicyCreateResponse(TrackedPolicyResponse):
+    """Create-response payload including the saved report baseline used for enrollment."""
+
+    baseline_report_id: UUID
+    baseline_report_action: Literal["created", "reused"]

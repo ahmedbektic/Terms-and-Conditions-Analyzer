@@ -170,6 +170,9 @@ describe('AuthEntryPoint', () => {
       if (url.endsWith('/reports')) {
         return jsonResponse([]);
       }
+      if (url.endsWith('/tracked-policies')) {
+        return jsonResponse([]);
+      }
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -213,6 +216,9 @@ describe('AuthEntryPoint', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/reports')) {
+        return jsonResponse([]);
+      }
+      if (url.endsWith('/tracked-policies')) {
         return jsonResponse([]);
       }
       throw new Error(`Unexpected request: ${url}`);
@@ -274,6 +280,9 @@ describe('AuthEntryPoint', () => {
           },
         ]);
       }
+      if (url.endsWith('/tracked-policies')) {
+        return jsonResponse([]);
+      }
       throw new Error(`Unexpected request: ${String(input)} ${init?.method ?? 'GET'}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -285,6 +294,10 @@ describe('AuthEntryPoint', () => {
 
     const reportsCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/reports'));
     expect(reportsCall).toBeTruthy();
+    const trackedPoliciesCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith('/tracked-policies'),
+    );
+    expect(trackedPoliciesCall).toBeTruthy();
 
     const init = reportsCall?.[1] as RequestInit | undefined;
     expect(readHeader(init?.headers, 'Authorization')).toBe('Bearer persisted-session-token');

@@ -574,6 +574,28 @@ textarea {
   line-height: 1.55;
 }
 
+.summary-placeholder {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+}
+
+.summary-placeholder-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.summary-placeholder-text {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
 .meta-grid {
   margin: 0;
   padding-top: 12px;
@@ -668,6 +690,26 @@ textarea {
 .watchlist-meta {
   color: var(--text-muted);
   font-size: 0.81rem;
+}
+
+.watchlist-note {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.watchlist-note-neutral {
+  border-color: var(--tone-neutral-border);
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-text);
+}
+
+.watchlist-note-error {
+  border-color: var(--tone-danger-border);
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-text);
 }
 
 .watchlist-row-actions {
@@ -825,6 +867,12 @@ textarea {
 .history-secondary {
   color: var(--text-muted);
   font-size: 0.84rem;
+}
+
+.history-tertiary {
+  color: var(--text-subtle);
+  font-size: 0.76rem;
+  font-weight: 620;
 }
 
 .history-status-chip {

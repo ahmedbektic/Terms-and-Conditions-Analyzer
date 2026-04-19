@@ -10,7 +10,9 @@ from datetime import datetime
 from uuid import UUID
 
 from .analysis_status import AnalysisLifecycleStatus
+from .policy_capture_status import PolicyCaptureStatus, PolicySnapshotStatus
 from .policy_tracking_status import PolicyTrackingStatus
+from .report_capture_kind import ReportContentCaptureKind
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,11 @@ class StoredReport:
     flagged_clauses: list[StoredFlaggedClause]
     created_at: datetime
     completed_at: datetime | None
+    canonical_source_url: str | None = None
+    content_capture_kind: ReportContentCaptureKind = ReportContentCaptureKind.LEGACY_UNKNOWN
+    tracked_policy_id: UUID | None = None
+    tracked_policy_snapshot_id: UUID | None = None
+    tracked_policy_version_number: int | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +76,56 @@ class StoredTrackedPolicy:
     source_type: str
     tracking_status: PolicyTrackingStatus
     last_checked_at: datetime | None
+    last_successful_capture_at: datetime | None
+    latest_capture_status: PolicyCaptureStatus
+    latest_capture_message: str | None
     active: bool
     created_at: datetime
     snapshot_version_count: int
+
+
+@dataclass(frozen=True)
+class PolicySnapshotCreateInput:
+    """Write-model for one tracked-policy snapshot attempt."""
+
+    raw_text_body: str
+    normalized_text_body: str
+    captured_at: datetime
+    source_url: str | None = None
+    final_url: str | None = None
+    http_status: int | None = None
+    redirect_count: int | None = None
+    fetch_duration_ms: int | None = None
+    extractor_name: str | None = None
+    extraction_strategy: str | None = None
+    capture_status: PolicySnapshotStatus = PolicySnapshotStatus.CAPTURED
+    capture_error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class StoredPolicySnapshot:
+    """Persisted snapshot row with richer capture metadata."""
+
+    id: UUID
+    tracked_policy_id: UUID
+    raw_text_body: str
+    normalized_text_body: str
+    content_hash: str
+    captured_at: datetime
+    capture_status: PolicySnapshotStatus
+    source_url: str | None
+    final_url: str | None
+    http_status: int | None
+    redirect_count: int | None
+    fetch_duration_ms: int | None
+    extractor_name: str | None
+    extraction_strategy: str | None
+    capture_error_message: str | None
+
+
+@dataclass(frozen=True)
+class PolicySnapshotAppendResult:
+    """Result of attempting to append a tracked-policy snapshot."""
+
+    snapshot: StoredPolicySnapshot
+    created: bool

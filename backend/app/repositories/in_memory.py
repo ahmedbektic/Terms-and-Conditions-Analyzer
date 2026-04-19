@@ -9,8 +9,27 @@ from dataclasses import replace
 from uuid import UUID, uuid4
 
 from .analysis_status import AnalysisLifecycleStatus, normalize_analysis_lifecycle_status
-from .models import StoredAgreement, StoredFlaggedClause, StoredReport, StoredTrackedPolicy
+from .models import (
+    PolicySnapshotAppendResult,
+    PolicySnapshotCreateInput,
+    StoredAgreement,
+    StoredFlaggedClause,
+    StoredPolicySnapshot,
+    StoredReport,
+    StoredTrackedPolicy,
+)
+from .policy_capture_status import (
+    PolicyCaptureStatus,
+    PolicySnapshotStatus,
+    normalize_policy_capture_status,
+    normalize_policy_snapshot_status,
+)
+from .policy_snapshot_hash import build_policy_snapshot_content_hash
 from .policy_tracking_status import PolicyTrackingStatus, normalize_policy_tracking_status
+from .report_capture_kind import (
+    ReportContentCaptureKind,
+    normalize_report_content_capture_kind,
+)
 
 
 class InMemoryStorage:
@@ -20,7 +39,7 @@ class InMemoryStorage:
         self.agreements: dict[UUID, StoredAgreement] = {}
         self.reports: dict[UUID, StoredReport] = {}
         self.tracked_policies: dict[UUID, StoredTrackedPolicy] = {}
-        self.policy_snapshots: dict[UUID, list[tuple[str, datetime]]] = {}
+        self.policy_snapshots: dict[UUID, list[StoredPolicySnapshot]] = {}
 
     def clear(self) -> None:
         self.agreements.clear()
@@ -94,8 +113,16 @@ class InMemoryReportRepository:
         model_name: str,
         flagged_clauses: list[StoredFlaggedClause],
         completed_at: datetime | None,
+        canonical_source_url: str | None = None,
+        content_capture_kind: ReportContentCaptureKind | str = (
+            ReportContentCaptureKind.LEGACY_UNKNOWN
+        ),
+        tracked_policy_id: UUID | None = None,
+        tracked_policy_snapshot_id: UUID | None = None,
+        tracked_policy_version_number: int | None = None,
     ) -> StoredReport:
         normalized_status = normalize_analysis_lifecycle_status(status)
+        normalized_capture_kind = normalize_report_content_capture_kind(content_capture_kind)
         report = StoredReport(
             id=uuid4(),
             agreement_id=agreement_id,
@@ -111,6 +138,11 @@ class InMemoryReportRepository:
             flagged_clauses=flagged_clauses,
             created_at=datetime.now(timezone.utc),
             completed_at=completed_at,
+            canonical_source_url=canonical_source_url,
+            content_capture_kind=normalized_capture_kind,
+            tracked_policy_id=tracked_policy_id,
+            tracked_policy_snapshot_id=tracked_policy_snapshot_id,
+            tracked_policy_version_number=tracked_policy_version_number,
         )
         self._storage.reports[report.id] = report
         return report
@@ -121,7 +153,7 @@ class InMemoryReportRepository:
             for report in self._storage.reports.values()
             if report.subject_type == subject_type and report.subject_id == subject_id
         ]
-        return sorted(reports, key=lambda report: report.created_at, reverse=True)
+        return self._sort_reports_newest_first(reports)
 
     def get_for_subject(
         self,
@@ -136,6 +168,36 @@ class InMemoryReportRepository:
         if report.subject_type != subject_type or report.subject_id != subject_id:
             return None
         return report
+
+    def get_latest_eligible_baseline_report_for_subject(
+        self,
+        *,
+        canonical_source_url: str,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredReport | None:
+        eligible_reports = [
+            report
+            for report in self._storage.reports.values()
+            if report.subject_type == subject_type
+            and report.subject_id == subject_id
+            and report.canonical_source_url == canonical_source_url
+            and report.content_capture_kind == ReportContentCaptureKind.FETCHED_URL
+        ]
+        if not eligible_reports:
+            return None
+        return self._sort_reports_newest_first(eligible_reports)[0]
+
+    def _sort_reports_newest_first(self, reports: list[StoredReport]) -> list[StoredReport]:
+        indexed_reports = list(enumerate(reports))
+        return [
+            report
+            for _, report in sorted(
+                indexed_reports,
+                key=lambda item: (item[1].created_at, item[0]),
+                reverse=True,
+            )
+        ]
 
 
 class InMemoryTrackedPolicyRepository:
@@ -165,6 +227,9 @@ class InMemoryTrackedPolicyRepository:
             source_type=source_type,
             tracking_status=normalize_policy_tracking_status(tracking_status),
             last_checked_at=last_checked_at,
+            last_successful_capture_at=None,
+            latest_capture_status=PolicyCaptureStatus.NEVER_CAPTURED,
+            latest_capture_message=None,
             active=active,
             created_at=datetime.now(timezone.utc),
             snapshot_version_count=0,
@@ -183,15 +248,7 @@ class InMemoryTrackedPolicyRepository:
             and tracked_policy.active
         ]
         return sorted(
-            (
-                replace(
-                    tracked_policy,
-                    snapshot_version_count=len(
-                        self._storage.policy_snapshots.get(tracked_policy.id, [])
-                    ),
-                )
-                for tracked_policy in tracked_policies
-            ),
+            (self._hydrate_tracked_policy(tracked_policy) for tracked_policy in tracked_policies),
             key=lambda tracked_policy: tracked_policy.created_at,
             reverse=True,
         )
@@ -208,10 +265,7 @@ class InMemoryTrackedPolicyRepository:
             return None
         if tracked_policy.subject_type != subject_type or tracked_policy.subject_id != subject_id:
             return None
-        count = len(self._storage.policy_snapshots.get(tracked_policy_id, []))
-        if tracked_policy.snapshot_version_count != count:
-            return replace(tracked_policy, snapshot_version_count=count)
-        return tracked_policy
+        return self._hydrate_tracked_policy(tracked_policy)
 
     def get_active_by_canonical_url_for_subject(
         self,
@@ -227,10 +281,7 @@ class InMemoryTrackedPolicyRepository:
                 and tracked_policy.canonical_url == canonical_url
                 and tracked_policy.active
             ):
-                count = len(self._storage.policy_snapshots.get(tracked_policy.id, []))
-                if tracked_policy.snapshot_version_count != count:
-                    return replace(tracked_policy, snapshot_version_count=count)
-                return tracked_policy
+                return self._hydrate_tracked_policy(tracked_policy)
         return None
 
     def deactivate_for_subject(
@@ -247,23 +298,10 @@ class InMemoryTrackedPolicyRepository:
         )
         if tracked_policy is None:
             return None
-        count = len(self._storage.policy_snapshots.get(tracked_policy_id, []))
-        deactivated_policy = replace(tracked_policy, active=False, snapshot_version_count=count)
+        hydrated_policy = self._hydrate_tracked_policy(tracked_policy)
+        deactivated_policy = replace(hydrated_policy, active=False)
         self._storage.tracked_policies[tracked_policy_id] = deactivated_policy
         return deactivated_policy
-
-    def append_snapshot_if_text_changed(
-        self,
-        *,
-        tracked_policy_id: UUID,
-        terms_text: str,
-        captured_at: datetime,
-    ) -> bool:
-        stored = self._storage.policy_snapshots.setdefault(tracked_policy_id, [])
-        if stored and stored[-1][0] == terms_text:
-            return False
-        stored.append((terms_text, captured_at))
-        return True
 
     def update_tracked_policy_check_state(
         self,
@@ -273,6 +311,8 @@ class InMemoryTrackedPolicyRepository:
         subject_id: str,
         last_checked_at: datetime,
         tracking_status: PolicyTrackingStatus,
+        latest_capture_status: PolicyCaptureStatus,
+        latest_capture_message: str | None,
     ) -> StoredTrackedPolicy | None:
         tracked_policy = self.get_active_for_subject(
             tracked_policy_id=tracked_policy_id,
@@ -281,12 +321,105 @@ class InMemoryTrackedPolicyRepository:
         )
         if tracked_policy is None:
             return None
-        count = len(self._storage.policy_snapshots.get(tracked_policy_id, []))
+        last_successful_capture_at = tracked_policy.last_successful_capture_at
+        normalized_capture_status = normalize_policy_capture_status(latest_capture_status)
+        if normalized_capture_status == PolicyCaptureStatus.CAPTURED:
+            latest_snapshot = self._get_latest_snapshot(tracked_policy_id)
+            last_successful_capture_at = (
+                latest_snapshot.captured_at
+                if latest_snapshot is not None
+                else last_successful_capture_at
+            )
         updated = replace(
             tracked_policy,
             last_checked_at=last_checked_at,
             tracking_status=normalize_policy_tracking_status(tracking_status),
-            snapshot_version_count=count,
+            last_successful_capture_at=last_successful_capture_at,
+            latest_capture_status=normalized_capture_status,
+            latest_capture_message=latest_capture_message,
         )
         self._storage.tracked_policies[tracked_policy_id] = updated
-        return updated
+        return self._hydrate_tracked_policy(updated)
+
+    def _get_latest_snapshot(self, tracked_policy_id: UUID) -> StoredPolicySnapshot | None:
+        snapshots = self._storage.policy_snapshots.get(tracked_policy_id, [])
+        if not snapshots:
+            return None
+        return snapshots[-1]
+
+    def _get_last_successful_capture_at(self, tracked_policy_id: UUID) -> datetime | None:
+        for snapshot in reversed(self._storage.policy_snapshots.get(tracked_policy_id, [])):
+            if snapshot.capture_status == PolicySnapshotStatus.CAPTURED:
+                return snapshot.captured_at
+        return None
+
+    def _hydrate_tracked_policy(self, tracked_policy: StoredTrackedPolicy) -> StoredTrackedPolicy:
+        snapshots = self._storage.policy_snapshots.get(tracked_policy.id, [])
+        return replace(
+            tracked_policy,
+            snapshot_version_count=len(snapshots),
+            last_successful_capture_at=self._get_last_successful_capture_at(tracked_policy.id),
+        )
+
+
+class InMemoryPolicySnapshotRepository:
+    """In-memory tracked-policy snapshot repository implementation."""
+
+    def __init__(self, storage: InMemoryStorage) -> None:
+        self._storage = storage
+
+    def append_for_tracked_policy_if_changed(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        snapshot: PolicySnapshotCreateInput,
+    ) -> PolicySnapshotAppendResult:
+        normalized_status = normalize_policy_snapshot_status(snapshot.capture_status)
+        content_hash = build_policy_snapshot_content_hash(snapshot.normalized_text_body)
+        stored_snapshots = self._storage.policy_snapshots.setdefault(tracked_policy_id, [])
+        latest_snapshot = stored_snapshots[-1] if stored_snapshots else None
+        if (
+            latest_snapshot is not None
+            and latest_snapshot.capture_status == PolicySnapshotStatus.CAPTURED
+            and latest_snapshot.content_hash == content_hash
+            and latest_snapshot.normalized_text_body == snapshot.normalized_text_body
+        ):
+            return PolicySnapshotAppendResult(snapshot=latest_snapshot, created=False)
+
+        stored_snapshot = StoredPolicySnapshot(
+            id=uuid4(),
+            tracked_policy_id=tracked_policy_id,
+            raw_text_body=snapshot.raw_text_body,
+            normalized_text_body=snapshot.normalized_text_body,
+            content_hash=content_hash,
+            captured_at=snapshot.captured_at,
+            capture_status=normalized_status,
+            source_url=snapshot.source_url,
+            final_url=snapshot.final_url,
+            http_status=snapshot.http_status,
+            redirect_count=snapshot.redirect_count,
+            fetch_duration_ms=snapshot.fetch_duration_ms,
+            extractor_name=snapshot.extractor_name,
+            extraction_strategy=snapshot.extraction_strategy,
+            capture_error_message=snapshot.capture_error_message,
+        )
+        stored_snapshots.append(stored_snapshot)
+        return PolicySnapshotAppendResult(snapshot=stored_snapshot, created=True)
+
+    def get_latest_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> StoredPolicySnapshot | None:
+        snapshots = self._storage.policy_snapshots.get(tracked_policy_id, [])
+        if not snapshots:
+            return None
+        return snapshots[-1]
+
+    def list_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> list[StoredPolicySnapshot]:
+        snapshots = self._storage.policy_snapshots.get(tracked_policy_id, [])
+        return list(reversed(snapshots))

@@ -29,8 +29,16 @@ export interface TrackedPolicyResponse {
   source_type: string;
   tracking_status: string;
   last_checked_at: string | null;
+  last_successful_capture_at: string | null;
+  latest_capture_status: string;
+  latest_capture_message: string | null;
   created_at: string;
   snapshot_version_count: number;
+}
+
+export interface TrackedPolicyCreateResponse extends TrackedPolicyResponse {
+  baseline_report_id: string;
+  baseline_report_action: 'created' | 'reused';
 }
 
 export interface AnalysisTriggerRequest {
@@ -64,6 +72,9 @@ export interface ReportResponse {
   flagged_clauses: FlaggedClauseResponse[];
   created_at: string;
   completed_at: string | null;
+  tracked_policy_id: string | null;
+  tracked_policy_snapshot_id: string | null;
+  tracked_policy_version_number: number | null;
 }
 
 export interface ReportListItemResponse {
@@ -75,4 +86,7 @@ export interface ReportListItemResponse {
   trust_score: number;
   model_name: string;
   created_at: string;
+  tracked_policy_id: string | null;
+  tracked_policy_snapshot_id: string | null;
+  tracked_policy_version_number: number | null;
 }

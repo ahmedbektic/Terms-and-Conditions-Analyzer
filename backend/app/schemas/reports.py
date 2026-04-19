@@ -117,6 +117,9 @@ class ReportResponse(BaseModel):
     flagged_clauses: list[FlaggedClauseResponse]
     created_at: datetime
     completed_at: datetime | None
+    tracked_policy_id: UUID | None = None
+    tracked_policy_snapshot_id: UUID | None = None
+    tracked_policy_version_number: int | None = None
 
 
 class ReportListItemResponse(BaseModel):
@@ -132,3 +135,6 @@ class ReportListItemResponse(BaseModel):
     trust_score: int
     model_name: str
     created_at: datetime
+    tracked_policy_id: UUID | None = None
+    tracked_policy_snapshot_id: UUID | None = None
+    tracked_policy_version_number: int | None = None
