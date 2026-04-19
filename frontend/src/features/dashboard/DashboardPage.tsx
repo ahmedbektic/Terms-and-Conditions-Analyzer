@@ -82,6 +82,14 @@ export function DashboardPage({
     [createTrackedPolicy, loadReportHistory, selectReport],
   );
 
+  const handleCheckTrackedPolicy = useCallback(
+    async (trackedPolicyId: string) => {
+      await checkTrackedPolicy(trackedPolicyId);
+      await loadReportHistory();
+    },
+    [checkTrackedPolicy, loadReportHistory],
+  );
+
   return (
     <main className="dashboard">
       <header className="dashboard-topbar">
@@ -157,7 +165,7 @@ export function DashboardPage({
             checkingTrackedPolicyId={checkingTrackedPolicyId}
             removingTrackedPolicyId={removingTrackedPolicyId}
             onCreateTrackedPolicy={handleCreateTrackedPolicy}
-            onCheckTrackedPolicy={checkTrackedPolicy}
+            onCheckTrackedPolicy={handleCheckTrackedPolicy}
             onRemoveTrackedPolicy={removeTrackedPolicy}
           />
           <ReportHistoryList

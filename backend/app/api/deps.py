@@ -16,6 +16,7 @@ from ..auth import (
 from ..core.config import settings
 from ..repositories.in_memory import (
     InMemoryAgreementRepository,
+    InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryTrackedPolicyRepository,
     InMemoryStorage,
@@ -44,6 +45,7 @@ def _build_persistence_dependencies():
 
         from ..persistence.postgres import (  # Imported lazily to keep memory-mode lightweight.
             PostgresAgreementRepository,
+            PostgresPolicySnapshotRepository,
             PostgresReportRepository,
             PostgresTrackedPolicyRepository,
             PostgresStorage,
@@ -56,7 +58,14 @@ def _build_persistence_dependencies():
         agreement_repository = PostgresAgreementRepository(storage)
         report_repository = PostgresReportRepository(storage)
         tracked_policy_repository = PostgresTrackedPolicyRepository(storage)
-        return agreement_repository, report_repository, tracked_policy_repository, storage
+        policy_snapshot_repository = PostgresPolicySnapshotRepository(storage)
+        return (
+            agreement_repository,
+            report_repository,
+            tracked_policy_repository,
+            policy_snapshot_repository,
+            storage,
+        )
 
     if backend not in {"memory", ""}:
         raise RuntimeError(
@@ -67,13 +76,21 @@ def _build_persistence_dependencies():
     agreement_repository = InMemoryAgreementRepository(storage)
     report_repository = InMemoryReportRepository(storage)
     tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
-    return agreement_repository, report_repository, tracked_policy_repository, storage
+    policy_snapshot_repository = InMemoryPolicySnapshotRepository(storage)
+    return (
+        agreement_repository,
+        report_repository,
+        tracked_policy_repository,
+        policy_snapshot_repository,
+        storage,
+    )
 
 
 (
     _agreement_repository,
     _report_repository,
     _tracked_policy_repository,
+    _policy_snapshot_repository,
     _persistence_storage,
 ) = _build_persistence_dependencies()
 
@@ -143,6 +160,7 @@ _analysis_service = AnalysisOrchestrationService(
 )
 _tracked_policy_service = TrackedPolicyService(
     tracked_policy_repository=_tracked_policy_repository,
+    policy_snapshot_repository=_policy_snapshot_repository,
     analysis_service=_analysis_service,
     public_web_source_inspector=_public_web_source_inspector,
 )

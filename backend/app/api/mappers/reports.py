@@ -24,6 +24,9 @@ def to_report_response(report: StoredReport) -> ReportResponse:
         flagged_clauses=[to_flagged_clause_response(clause) for clause in report.flagged_clauses],
         created_at=report.created_at,
         completed_at=report.completed_at,
+        tracked_policy_id=report.tracked_policy_id,
+        tracked_policy_snapshot_id=report.tracked_policy_snapshot_id,
+        tracked_policy_version_number=report.tracked_policy_version_number,
     )
 
 

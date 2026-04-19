@@ -10,7 +10,16 @@ from typing import Protocol
 from uuid import UUID
 
 from .analysis_status import AnalysisLifecycleStatus
-from .models import StoredAgreement, StoredFlaggedClause, StoredReport, StoredTrackedPolicy
+from .models import (
+    PolicySnapshotAppendResult,
+    PolicySnapshotCreateInput,
+    StoredAgreement,
+    StoredFlaggedClause,
+    StoredPolicySnapshot,
+    StoredReport,
+    StoredTrackedPolicy,
+)
+from .policy_capture_status import PolicyCaptureStatus
 from .policy_tracking_status import PolicyTrackingStatus
 from .report_capture_kind import ReportContentCaptureKind
 
@@ -60,6 +69,9 @@ class ReportRepository(Protocol):
         content_capture_kind: ReportContentCaptureKind | str = (
             ReportContentCaptureKind.LEGACY_UNKNOWN
         ),
+        tracked_policy_id: UUID | None = None,
+        tracked_policy_snapshot_id: UUID | None = None,
+        tracked_policy_version_number: int | None = None,
     ) -> StoredReport: ...
 
     def list_for_subject(self, *, subject_type: str, subject_id: str) -> list[StoredReport]: ...
@@ -125,14 +137,6 @@ class TrackedPolicyRepository(Protocol):
         subject_id: str,
     ) -> StoredTrackedPolicy | None: ...
 
-    def append_snapshot_if_text_changed(
-        self,
-        *,
-        tracked_policy_id: UUID,
-        terms_text: str,
-        captured_at: datetime,
-    ) -> bool: ...
-
     def update_tracked_policy_check_state(
         self,
         *,
@@ -141,4 +145,29 @@ class TrackedPolicyRepository(Protocol):
         subject_id: str,
         last_checked_at: datetime,
         tracking_status: PolicyTrackingStatus,
+        latest_capture_status: PolicyCaptureStatus,
+        latest_capture_message: str | None,
     ) -> StoredTrackedPolicy | None: ...
+
+
+class PolicySnapshotRepository(Protocol):
+    """Persistence operations for tracked-policy snapshots."""
+
+    def append_for_tracked_policy_if_changed(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        snapshot: PolicySnapshotCreateInput,
+    ) -> PolicySnapshotAppendResult: ...
+
+    def get_latest_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> StoredPolicySnapshot | None: ...
+
+    def list_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> list[StoredPolicySnapshot]: ...

@@ -27,6 +27,9 @@ export interface DashboardReport {
   flaggedClauses: DashboardFlaggedClause[];
   createdAt: string;
   completedAt: string | null;
+  trackedPolicyId: string | null;
+  trackedPolicySnapshotId: string | null;
+  trackedPolicyVersionNumber: number | null;
 }
 
 export interface DashboardReportListItem {
@@ -38,6 +41,9 @@ export interface DashboardReportListItem {
   trustScore: number;
   modelName: string;
   createdAt: string;
+  trackedPolicyId: string | null;
+  trackedPolicySnapshotId: string | null;
+  trackedPolicyVersionNumber: number | null;
 }
 
 export interface DashboardTrackedPolicy {
@@ -47,6 +53,9 @@ export interface DashboardTrackedPolicy {
   sourceType: string;
   trackingStatus: string;
   lastCheckedAt: string | null;
+  lastSuccessfulCaptureAt: string | null;
+  latestCaptureStatus: string;
+  latestCaptureMessage: string | null;
   createdAt: string;
   snapshotVersionCount: number;
 }

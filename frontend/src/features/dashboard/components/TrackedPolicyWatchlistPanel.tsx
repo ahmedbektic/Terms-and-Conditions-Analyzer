@@ -16,6 +16,11 @@ interface TrackedPolicyWatchlistPanelProps {
   onRemoveTrackedPolicy: (trackedPolicyId: string) => Promise<void>;
 }
 
+interface WatchlistStatusNote {
+  message: string;
+  toneClassName: string;
+}
+
 function getTrackingStatusChipClassName(trackingStatus: string): string {
   const normalizedStatus = trackingStatus.toLowerCase();
   if (normalizedStatus === 'active') {
@@ -34,33 +39,64 @@ function formatTrackingStatusLabel(trackingStatus: string): string {
   return trackingStatus.replace(/_/g, ' ');
 }
 
-function getTrackingStatusDescription(trackedPolicy: DashboardTrackedPolicy): string | null {
-  const normalizedStatus = trackedPolicy.trackingStatus.toLowerCase();
-
-  if (normalizedStatus === 'pending_first_snapshot') {
-    return 'This older watchlist entry has not stored its first version yet. Run Check now to capture one.';
+function getStoredVersionLabel(snapshotVersionCount: number): string {
+  if (snapshotVersionCount === 0) {
+    return 'No stored versions yet';
   }
 
-  if (normalizedStatus === 'invalid_source') {
-    return "The latest check could not read this page. Use the service's public terms, privacy, or legal page if the link changed.";
-  }
-
-  if (normalizedStatus === 'active' && trackedPolicy.snapshotVersionCount === 0) {
-    return 'Tracking is active, but no stored versions exist yet.';
-  }
-
-  return null;
+  return `${snapshotVersionCount} stored version${snapshotVersionCount === 1 ? '' : 's'}`;
 }
 
 function getLastCheckedLabel(trackedPolicy: DashboardTrackedPolicy): string {
+  const normalizedStatus = trackedPolicy.trackingStatus.toLowerCase();
+
+  if (normalizedStatus === 'pending_first_snapshot') {
+    return 'URL verified';
+  }
+
+  return 'Last check attempt';
+}
+
+function getStatusNote(trackedPolicy: DashboardTrackedPolicy): WatchlistStatusNote | null {
+  if (trackedPolicy.latestCaptureStatus === 'capture_failed') {
+    return {
+      message:
+        trackedPolicy.latestCaptureMessage ??
+        "The latest check could not capture readable policy text from this page.",
+      toneClassName: 'watchlist-note-error',
+    };
+  }
+
+  if (trackedPolicy.latestCaptureMessage) {
+    return {
+      message: trackedPolicy.latestCaptureMessage,
+      toneClassName: 'watchlist-note-neutral',
+    };
+  }
+
   if (
     trackedPolicy.trackingStatus.toLowerCase() === 'pending_first_snapshot' &&
     trackedPolicy.snapshotVersionCount === 0
   ) {
-    return 'URL verified';
+    return {
+      message:
+        'This older watchlist entry has not stored its first snapshot yet. Run Check now to capture one.',
+      toneClassName: 'watchlist-note-neutral',
+    };
   }
 
-  return 'Last checked';
+  if (
+    trackedPolicy.trackingStatus.toLowerCase() === 'active' &&
+    trackedPolicy.snapshotVersionCount === 0
+  ) {
+    return {
+      message:
+        'Tracking is active, but no successful capture has been stored yet. Run Check now to capture the first version.',
+      toneClassName: 'watchlist-note-neutral',
+    };
+  }
+
+  return null;
 }
 
 export function TrackedPolicyWatchlistPanel({
@@ -132,66 +168,76 @@ export function TrackedPolicyWatchlistPanel({
       ) : null}
 
       <ul className="watchlist-list">
-        {trackedPolicies.map((trackedPolicy) => (
-          <li key={trackedPolicy.id} className="watchlist-row">
-            <div className="watchlist-row-main">
-              <div className="watchlist-row-copy">
-                <strong className="watchlist-display-name">{trackedPolicy.displayName}</strong>
-                <span className="watchlist-url">{trackedPolicy.canonicalUrl}</span>
-                <span className="watchlist-meta">
-                  {trackedPolicy.snapshotVersionCount} stored version
-                  {trackedPolicy.snapshotVersionCount === 1 ? '' : 's'}
-                  {' - '}
-                  {getLastCheckedLabel(trackedPolicy)}{' '}
-                  {trackedPolicy.lastCheckedAt
-                    ? formatDashboardDate(trackedPolicy.lastCheckedAt)
-                    : 'Never'}
-                </span>
-                {getTrackingStatusDescription(trackedPolicy) ? (
+        {trackedPolicies.map((trackedPolicy) => {
+          const statusNote = getStatusNote(trackedPolicy);
+
+          return (
+            <li key={trackedPolicy.id} className="watchlist-row">
+              <div className="watchlist-row-main">
+                <div className="watchlist-row-copy">
+                  <strong className="watchlist-display-name">{trackedPolicy.displayName}</strong>
+                  <span className="watchlist-url">{trackedPolicy.canonicalUrl}</span>
                   <span className="watchlist-meta">
-                    {getTrackingStatusDescription(trackedPolicy)}
+                    {getStoredVersionLabel(trackedPolicy.snapshotVersionCount)}
                   </span>
-                ) : null}
+                  <span className="watchlist-meta">
+                    {getLastCheckedLabel(trackedPolicy)}:{' '}
+                    {trackedPolicy.lastCheckedAt
+                      ? formatDashboardDate(trackedPolicy.lastCheckedAt)
+                      : 'Never'}
+                  </span>
+                  <span className="watchlist-meta">
+                    Last successful capture:{' '}
+                    {trackedPolicy.lastSuccessfulCaptureAt
+                      ? formatDashboardDate(trackedPolicy.lastSuccessfulCaptureAt)
+                      : 'Not yet'}
+                  </span>
+                  {statusNote ? (
+                    <span className={`watchlist-note ${statusNote.toneClassName}`}>
+                      {statusNote.message}
+                    </span>
+                  ) : null}
+                </div>
+                <span
+                  className={`chip watchlist-status-chip ${getTrackingStatusChipClassName(
+                    trackedPolicy.trackingStatus,
+                  )}`}
+                >
+                  {formatTrackingStatusLabel(trackedPolicy.trackingStatus)}
+                </span>
               </div>
-              <span
-                className={`chip watchlist-status-chip ${getTrackingStatusChipClassName(
-                  trackedPolicy.trackingStatus,
-                )}`}
-              >
-                {formatTrackingStatusLabel(trackedPolicy.trackingStatus)}
-              </span>
-            </div>
-            <div className="watchlist-row-actions">
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => void onCheckTrackedPolicy(trackedPolicy.id)}
-                disabled={
-                  checkingTrackedPolicyId === trackedPolicy.id ||
-                  removingTrackedPolicyId === trackedPolicy.id
-                }
-              >
-                {checkingTrackedPolicyId === trackedPolicy.id ? 'Checking...' : 'Check now'}
-              </button>
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => void onRemoveTrackedPolicy(trackedPolicy.id)}
-                disabled={
-                  removingTrackedPolicyId === trackedPolicy.id ||
-                  checkingTrackedPolicyId === trackedPolicy.id
-                }
-              >
-                {removingTrackedPolicyId === trackedPolicy.id ? 'Removing...' : 'Remove'}
-              </button>
-            </div>
-          </li>
-        ))}
+              <div className="watchlist-row-actions">
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => void onCheckTrackedPolicy(trackedPolicy.id)}
+                  disabled={
+                    checkingTrackedPolicyId === trackedPolicy.id ||
+                    removingTrackedPolicyId === trackedPolicy.id
+                  }
+                >
+                  {checkingTrackedPolicyId === trackedPolicy.id ? 'Checking...' : 'Check now'}
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => void onRemoveTrackedPolicy(trackedPolicy.id)}
+                  disabled={
+                    removingTrackedPolicyId === trackedPolicy.id ||
+                    checkingTrackedPolicyId === trackedPolicy.id
+                  }
+                >
+                  {removingTrackedPolicyId === trackedPolicy.id ? 'Removing...' : 'Remove'}
+                </button>
+              </div>
+            </li>
+          );
+        })}
       </ul>
 
       <p className="field-help">
-        New watchlist entries begin at 1 stored version because enrollment saves the verified
-        baseline as the first tracked capture.
+        Stored versions come from watchlist captures. Saved reports remain separate in report
+        history and can still be selected independently.
       </p>
     </section>
   );

@@ -5,10 +5,12 @@ import pytest
 
 from app.repositories.in_memory import (
     InMemoryAgreementRepository,
+    InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryStorage,
     InMemoryTrackedPolicyRepository,
 )
+from app.repositories.policy_capture_status import PolicyCaptureStatus
 from app.repositories.policy_tracking_status import PolicyTrackingStatus
 from app.repositories.report_capture_kind import ReportContentCaptureKind
 from app.services.ai_provider import DeterministicAnalysisProvider
@@ -28,6 +30,7 @@ from app.services.tracked_policy_service import (
     TrackedPolicyService,
 )
 from app.services.web_source import (
+    CapturedPolicySnapshotSource,
     CapturedWebSource,
     InspectedWebSource,
     PublicWebSourceInspector,
@@ -80,13 +83,16 @@ class _StubInspector:
         ),
         create_capture_error: WebSourceInspectionError | None = None,
         check_capture_error: WebSourceInspectionError | None = None,
+        check_captured_texts: list[str] | None = None,
     ) -> None:
         self._inspected_source = inspected_source
         self._captured_text = captured_text
         self._create_capture_error = create_capture_error
         self._check_capture_error = check_capture_error
+        self._check_captured_texts = list(check_captured_texts or [])
         self.inspect_calls = 0
         self.capture_trackable_calls = 0
+        self.capture_policy_snapshot_source_calls = 0
         self.capture_policy_text_calls = 0
 
     def inspect_url(self, *, source_url: str) -> InspectedWebSource:
@@ -107,12 +113,36 @@ class _StubInspector:
             captured_text=self._captured_text,
         )
 
+    def capture_policy_snapshot_source(self, *, canonical_url: str) -> CapturedPolicySnapshotSource:
+        _ = canonical_url
+        self.capture_policy_snapshot_source_calls += 1
+        if self._check_capture_error is not None:
+            raise self._check_capture_error
+        captured_text = self._captured_text
+        if self._check_captured_texts:
+            captured_text = self._check_captured_texts.pop(0)
+        checked_at = datetime.now(timezone.utc)
+        return CapturedPolicySnapshotSource(
+            canonical_url=self._inspected_source.canonical_url,
+            display_name=self._inspected_source.display_name,
+            source_type=self._inspected_source.source_type,
+            checked_at=checked_at,
+            raw_text_body=captured_text,
+            normalized_text_body=captured_text,
+            final_url=self._inspected_source.canonical_url,
+            http_status=200,
+            redirect_count=0,
+            fetch_duration_ms=25,
+            extractor_name="stub_inspector",
+            extraction_strategy="stub_capture",
+        )
+
     def capture_policy_text(self, *, canonical_url: str) -> str:
         _ = canonical_url
         self.capture_policy_text_calls += 1
-        if self._check_capture_error is not None:
-            raise self._check_capture_error
-        return self._captured_text
+        return self.capture_policy_snapshot_source(
+            canonical_url=canonical_url
+        ).normalized_text_body
 
 
 class _FailingBaselineAnalysisService:
@@ -160,6 +190,7 @@ def _build_services(
 ) -> tuple[TrackedPolicyService, AnalysisOrchestrationService | _FailingBaselineAnalysisService]:
     storage = InMemoryStorage()
     tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
+    policy_snapshot_repository = InMemoryPolicySnapshotRepository(storage)
 
     effective_analysis_service = analysis_service
     if effective_analysis_service is None:
@@ -178,6 +209,7 @@ def _build_services(
     return (
         TrackedPolicyService(
             tracked_policy_repository=tracked_policy_repository,
+            policy_snapshot_repository=policy_snapshot_repository,
             analysis_service=effective_analysis_service,
             public_web_source_inspector=inspector,
         ),
@@ -318,6 +350,9 @@ def test_tracked_policy_service_creates_saved_fetched_url_baseline_when_none_exi
     assert enrollment.baseline_report_action == "created"
     assert enrollment.tracked_policy.tracking_status == PolicyTrackingStatus.ACTIVE
     assert enrollment.tracked_policy.last_checked_at == checked_at
+    assert enrollment.tracked_policy.last_successful_capture_at == checked_at
+    assert enrollment.tracked_policy.latest_capture_status == PolicyCaptureStatus.CAPTURED
+    assert enrollment.tracked_policy.latest_capture_message is None
     assert enrollment.tracked_policy.snapshot_version_count == 1
     assert enrollment.baseline_report.canonical_source_url == "https://example.com/terms?a=1&b=2"
     assert enrollment.baseline_report.content_capture_kind == ReportContentCaptureKind.FETCHED_URL
@@ -356,6 +391,8 @@ def test_tracked_policy_service_reuses_existing_fetched_url_baseline_report() ->
     assert enrollment.baseline_report_action == "reused"
     assert enrollment.baseline_report.id == existing_baseline.id
     assert enrollment.tracked_policy.tracking_status == PolicyTrackingStatus.ACTIVE
+    assert enrollment.tracked_policy.last_successful_capture_at == checked_at
+    assert enrollment.tracked_policy.latest_capture_status == PolicyCaptureStatus.CAPTURED
     assert enrollment.tracked_policy.snapshot_version_count == 1
     reports = analysis_service.list_reports(subject=subject)
     assert len(reports) == 1
@@ -395,6 +432,7 @@ def test_tracked_policy_service_creates_fresh_baseline_when_only_submitted_text_
     assert len(reports) == 2
     assert enrollment.baseline_report_action == "created"
     assert enrollment.baseline_report.id != submitted_text_report.id
+    assert enrollment.tracked_policy.latest_capture_status == PolicyCaptureStatus.CAPTURED
     assert enrollment.tracked_policy.snapshot_version_count == 1
     created_baseline_report = next(
         report for report in reports if report.id == enrollment.baseline_report.id
@@ -493,6 +531,9 @@ def test_tracked_policy_service_marks_policy_invalid_source_and_does_not_create_
     tracked_policies = service.list_tracked_policies(subject=subject)
     assert len(tracked_policies) == 1
     assert tracked_policies[0].tracking_status == PolicyTrackingStatus.INVALID_SOURCE
+    assert tracked_policies[0].latest_capture_status == PolicyCaptureStatus.CAPTURE_FAILED
+    assert "404 not found" in (tracked_policies[0].latest_capture_message or "").lower()
+    assert tracked_policies[0].last_successful_capture_at == checked_at
     assert tracked_policies[0].snapshot_version_count == 1
     assert len(analysis_service.list_reports(subject=subject)) == 1
 
@@ -522,6 +563,9 @@ def test_tracked_policy_check_does_not_create_new_saved_reports() -> None:
     )
 
     assert updated.tracking_status == PolicyTrackingStatus.ACTIVE
+    assert updated.latest_capture_status == PolicyCaptureStatus.CAPTURED
+    assert "no policy text changes" in (updated.latest_capture_message or "").lower()
+    assert updated.last_successful_capture_at is not None
     assert updated.snapshot_version_count == 1
     assert len(analysis_service.list_reports(subject=subject)) == 1
 
@@ -550,4 +594,42 @@ def test_tracked_policy_check_does_not_increment_version_count_when_baseline_sna
         tracked_policy_id=enrollment.tracked_policy.id,
     )
 
+    assert updated.latest_capture_status == PolicyCaptureStatus.CAPTURED
+    assert "no policy text changes" in (updated.latest_capture_message or "").lower()
     assert updated.snapshot_version_count == 1
+
+
+def test_tracked_policy_check_creates_saved_report_for_new_snapshot_version() -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    service, analysis_service = _build_services(
+        inspector=_StubInspector(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            ),
+            check_captured_texts=[
+                "These updated terms include arbitration, privacy, and mandatory venue clauses."
+            ],
+        )
+    )
+    subject = RequestSubject(subject_type="supabase_user", subject_id="user-a")
+
+    enrollment = service.create_tracked_policy(
+        subject=subject,
+        source_url="https://example.com/terms",
+    )
+
+    updated = service.check_tracked_policy(
+        subject=subject,
+        tracked_policy_id=enrollment.tracked_policy.id,
+    )
+
+    reports = analysis_service.list_reports(subject=subject)
+    assert updated.snapshot_version_count == 2
+    assert len(reports) == 2
+    assert reports[0].tracked_policy_id == enrollment.tracked_policy.id
+    assert reports[0].tracked_policy_snapshot_id is not None
+    assert reports[0].tracked_policy_version_number == 2
+    assert reports[1].tracked_policy_version_number is None

@@ -14,6 +14,7 @@ Current state:
 from dataclasses import dataclass
 from logging import getLogger
 from typing import Protocol
+from uuid import UUID
 
 from ..repositories.analysis_status import AnalysisLifecycleStatus
 from ..repositories.interfaces import ReportRepository
@@ -49,6 +50,9 @@ class AnalysisExecutionRequest:
     subject_id: str
     agreement: StoredAgreement
     ingestion_result: ExtractionIngestionResult
+    tracked_policy_id: UUID | None = None
+    tracked_policy_snapshot_id: UUID | None = None
+    tracked_policy_version_number: int | None = None
 
 
 class AnalysisExecutionStrategy(Protocol):
@@ -95,6 +99,9 @@ class SyncAnalysisExecutionStrategy:
             completed_at=provider_result.completed_at,
             canonical_source_url=_derive_canonical_source_url(request.ingestion_result),
             content_capture_kind=_derive_content_capture_kind(request.ingestion_result),
+            tracked_policy_id=request.tracked_policy_id,
+            tracked_policy_snapshot_id=request.tracked_policy_snapshot_id,
+            tracked_policy_version_number=request.tracked_policy_version_number,
         )
 
 

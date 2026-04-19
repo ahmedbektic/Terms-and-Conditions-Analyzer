@@ -23,6 +23,17 @@ function getReportStatusChipClassName(status: string): string {
   return 'history-status-default';
 }
 
+function getTrackedVersionCaption(report: DashboardReportListItem): string | null {
+  if (
+    report.trackedPolicyVersionNumber !== null &&
+    report.trackedPolicyVersionNumber > 1
+  ) {
+    return `Stored version #${report.trackedPolicyVersionNumber}`;
+  }
+
+  return null;
+}
+
 export function ReportHistoryList({
   reports,
   selectedReportId,
@@ -46,10 +57,14 @@ export function ReportHistoryList({
       <ul className="history-list">
         {reports.map((report) => (
           <li key={report.id}>
+            {(() => {
+              const trackedVersionCaption = getTrackedVersionCaption(report);
+
+              return (
             <button
               type="button"
               // Stable accessible label makes keyboard/screen-reader navigation predictable.
-              aria-label={`${report.sourceType.toUpperCase()} ${report.sourceValue}`}
+              aria-label={`${report.sourceType.toUpperCase()} ${report.sourceValue}${trackedVersionCaption ? ` ${trackedVersionCaption}` : ''}`}
               className={selectedReportId === report.id ? 'history-button selected' : 'history-button'}
               onClick={() => void onSelectReport(report.id)}
             >
@@ -65,7 +80,12 @@ export function ReportHistoryList({
               <span className="history-secondary">
                 Score {report.trustScore}/100 | {formatDashboardDate(report.createdAt)}
               </span>
+              {trackedVersionCaption ? (
+                <span className="history-tertiary">{trackedVersionCaption}</span>
+              ) : null}
             </button>
+              );
+            })()}
           </li>
         ))}
       </ul>

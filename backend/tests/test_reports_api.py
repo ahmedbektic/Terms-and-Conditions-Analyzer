@@ -142,6 +142,9 @@ def _assert_report_response_contract(report: dict) -> None:
         "flagged_clauses",
         "created_at",
         "completed_at",
+        "tracked_policy_id",
+        "tracked_policy_snapshot_id",
+        "tracked_policy_version_number",
     }
     assert report["status"] == "completed"
     assert isinstance(report["summary"], str)
@@ -167,6 +170,9 @@ def _assert_report_list_item_contract(report: dict) -> None:
         "trust_score",
         "model_name",
         "created_at",
+        "tracked_policy_id",
+        "tracked_policy_snapshot_id",
+        "tracked_policy_version_number",
     }
     assert report["status"] == "completed"
 

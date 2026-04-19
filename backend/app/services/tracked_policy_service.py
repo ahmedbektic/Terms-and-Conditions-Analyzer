@@ -16,19 +16,28 @@ snapshot.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
 from ..repositories.errors import ActiveTrackedPolicyConflictError
-from ..repositories.interfaces import TrackedPolicyRepository
-from ..repositories.models import StoredReport, StoredTrackedPolicy
+from ..repositories.interfaces import PolicySnapshotRepository, TrackedPolicyRepository
+from ..repositories.models import (
+    PolicySnapshotCreateInput,
+    StoredReport,
+    StoredTrackedPolicy,
+)
+from ..repositories.policy_capture_status import PolicyCaptureStatus
 from ..repositories.policy_tracking_status import PolicyTrackingStatus
 from .analysis_service import (
     AgreementNotFoundError,
     AnalysisOrchestrationService,
     InvalidSubmissionError,
     ReportNotFoundError,
+)
+from .policy_snapshot_service import (
+    PolicySnapshotCheckFailedError,
+    PolicySnapshotService,
+    PolicySnapshotTrackedPolicyNotFoundError,
 )
 from .request_subject import RequestSubject
 from .web_source import (
@@ -74,13 +83,22 @@ class TrackedPolicyService:
         self,
         *,
         tracked_policy_repository: TrackedPolicyRepository,
+        policy_snapshot_repository: PolicySnapshotRepository,
         analysis_service: AnalysisOrchestrationService,
         public_web_source_inspector: PublicWebSourceInspector | None = None,
+        policy_snapshot_service: PolicySnapshotService | None = None,
     ) -> None:
         self._tracked_policy_repository = tracked_policy_repository
+        self._policy_snapshot_repository = policy_snapshot_repository
         self._analysis_service = analysis_service
         self._public_web_source_inspector = (
             public_web_source_inspector or PublicWebSourceInspector()
+        )
+        self._policy_snapshot_service = policy_snapshot_service or PolicySnapshotService(
+            tracked_policy_repository=tracked_policy_repository,
+            policy_snapshot_repository=policy_snapshot_repository,
+            analysis_service=analysis_service,
+            public_web_source_inspector=self._public_web_source_inspector,
         )
 
     def create_tracked_policy(
@@ -156,10 +174,17 @@ class TrackedPolicyService:
                 "That policy is already in your watchlist. Remove the existing entry if you want to add it again."
             ) from error
 
-        self._tracked_policy_repository.append_snapshot_if_text_changed(
+        self._policy_snapshot_repository.append_for_tracked_policy_if_changed(
             tracked_policy_id=tracked_policy.id,
-            terms_text=baseline_snapshot_text,
-            captured_at=captured_source.checked_at,
+            snapshot=PolicySnapshotCreateInput(
+                raw_text_body=baseline_snapshot_text,
+                normalized_text_body=baseline_snapshot_text,
+                captured_at=captured_source.checked_at,
+                source_url=captured_source.canonical_url,
+                final_url=captured_source.canonical_url,
+                extractor_name="tracked_policy_service",
+                extraction_strategy="report_backed_watchlist_enrollment",
+            ),
         )
         hydrated_tracked_policy = self._tracked_policy_repository.update_tracked_policy_check_state(
             tracked_policy_id=tracked_policy.id,
@@ -167,6 +192,8 @@ class TrackedPolicyService:
             subject_id=subject.subject_id,
             last_checked_at=captured_source.checked_at,
             tracking_status=PolicyTrackingStatus.ACTIVE,
+            latest_capture_status=PolicyCaptureStatus.CAPTURED,
+            latest_capture_message=None,
         )
         if hydrated_tracked_policy is None:
             raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy.id} was not found.")
@@ -200,45 +227,13 @@ class TrackedPolicyService:
     ) -> StoredTrackedPolicy:
         """Fetch current policy text, store a new snapshot when it changes, and refresh status."""
 
-        existing = self._tracked_policy_repository.get_active_for_subject(
-            tracked_policy_id=tracked_policy_id,
-            subject_type=subject.subject_type,
-            subject_id=subject.subject_id,
-        )
-        if existing is None:
-            raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
-
-        checked_at = datetime.now(timezone.utc)
         try:
-            policy_text = self._public_web_source_inspector.capture_policy_text(
-                canonical_url=existing.canonical_url
-            )
-        except WebSourceInspectionError as error:
-            updated = self._tracked_policy_repository.update_tracked_policy_check_state(
+            result = self._policy_snapshot_service.check_tracked_policy(
+                subject=subject,
                 tracked_policy_id=tracked_policy_id,
-                subject_type=subject.subject_type,
-                subject_id=subject.subject_id,
-                last_checked_at=checked_at,
-                tracking_status=PolicyTrackingStatus.INVALID_SOURCE,
             )
-            if updated is None:
-                raise TrackedPolicyNotFoundError(
-                    f"Tracked policy {tracked_policy_id} was not found."
-                )
+        except PolicySnapshotTrackedPolicyNotFoundError as error:
+            raise TrackedPolicyNotFoundError(str(error)) from error
+        except PolicySnapshotCheckFailedError as error:
             raise TrackedPolicyCheckFailedError(str(error)) from error
-
-        self._tracked_policy_repository.append_snapshot_if_text_changed(
-            tracked_policy_id=tracked_policy_id,
-            terms_text=policy_text,
-            captured_at=checked_at,
-        )
-        updated = self._tracked_policy_repository.update_tracked_policy_check_state(
-            tracked_policy_id=tracked_policy_id,
-            subject_type=subject.subject_type,
-            subject_id=subject.subject_id,
-            last_checked_at=checked_at,
-            tracking_status=PolicyTrackingStatus.ACTIVE,
-        )
-        if updated is None:
-            raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
-        return updated
+        return result.tracked_policy

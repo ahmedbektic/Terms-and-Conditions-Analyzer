@@ -200,6 +200,9 @@ class AnalysisOrchestrationService:
         canonical_source_url: str,
         display_name: str | None,
         captured_text: str,
+        tracked_policy_id: UUID | None = None,
+        tracked_policy_snapshot_id: UUID | None = None,
+        tracked_policy_version_number: int | None = None,
     ) -> StoredReport:
         """Persist and analyze a server-fetched URL capture as a saved baseline report."""
 
@@ -222,6 +225,9 @@ class AnalysisOrchestrationService:
             subject=subject,
             agreement=agreement,
             ingestion_result=ingestion_result,
+            tracked_policy_id=tracked_policy_id,
+            tracked_policy_snapshot_id=tracked_policy_snapshot_id,
+            tracked_policy_version_number=tracked_policy_version_number,
         )
 
     def get_report_terms_text(self, *, subject: RequestSubject, report_id: UUID) -> str:
@@ -243,6 +249,9 @@ class AnalysisOrchestrationService:
         subject: RequestSubject,
         agreement: StoredAgreement,
         ingestion_result: ExtractionIngestionResult,
+        tracked_policy_id: UUID | None = None,
+        tracked_policy_snapshot_id: UUID | None = None,
+        tracked_policy_version_number: int | None = None,
     ) -> StoredReport:
         """Execute report generation through the configured execution strategy.
 
@@ -258,6 +267,9 @@ class AnalysisOrchestrationService:
                     subject_id=subject.subject_id,
                     agreement=agreement,
                     ingestion_result=ingestion_result,
+                    tracked_policy_id=tracked_policy_id,
+                    tracked_policy_snapshot_id=tracked_policy_snapshot_id,
+                    tracked_policy_version_number=tracked_policy_version_number,
                 )
             )
         except AnalysisProviderInputError as error:

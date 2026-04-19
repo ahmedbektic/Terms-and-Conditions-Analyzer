@@ -98,7 +98,17 @@ export function useTrackedPolicies(apiClient: DashboardApiClient): UseTrackedPol
         const checkedTrackedPolicy = await apiClient.checkTrackedPolicy(trackedPolicyId);
         const trackedPoliciesResponse = await apiClient.listTrackedPolicies();
         setTrackedPolicies(trackedPoliciesResponse.map(mapTrackedPolicy));
-        setSuccessMessage(`${checkedTrackedPolicy.display_name} was checked for updates.`);
+        if (checkedTrackedPolicy.latest_capture_message) {
+          setSuccessMessage(checkedTrackedPolicy.latest_capture_message);
+        } else {
+          const versionLabel =
+            checkedTrackedPolicy.snapshot_version_count === 1
+              ? '1 stored version'
+              : `${checkedTrackedPolicy.snapshot_version_count} stored versions`;
+          setSuccessMessage(
+            `${checkedTrackedPolicy.display_name} was checked and now has ${versionLabel}.`,
+          );
+        }
       } catch (error) {
         try {
           const trackedPoliciesResponse = await apiClient.listTrackedPolicies();

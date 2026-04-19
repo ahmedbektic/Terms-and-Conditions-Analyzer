@@ -69,6 +69,9 @@ jobs:
       - name: Check formatting
         run: black --check backend
 
+      - name: Run tracked snapshot regression test
+        run: pytest backend/tests/test_policy_snapshot_service.py
+
       - name: Run backend tests
         run: pytest backend/tests
 

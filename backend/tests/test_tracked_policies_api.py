@@ -12,6 +12,7 @@ from app.auth.supabase_jwt import SupabaseJwtVerifier
 from app.main import create_app
 from app.repositories.in_memory import (
     InMemoryAgreementRepository,
+    InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryStorage,
     InMemoryTrackedPolicyRepository,
@@ -23,6 +24,7 @@ from app.services.request_subject import RequestSubject
 from app.services.submission_preparation import SubmissionPreparationService
 from app.services.tracked_policy_service import TrackedPolicyService
 from app.services.web_source import (
+    CapturedPolicySnapshotSource,
     CapturedWebSource,
     InspectedWebSource,
     PublicWebSourceInspector,
@@ -73,11 +75,13 @@ class _InspectorDouble:
         ),
         create_capture_error: WebSourceInspectionError | None = None,
         check_capture_error: WebSourceInspectionError | None = None,
+        check_captured_texts: list[str] | None = None,
     ) -> None:
         self._inspected_source = inspected_source
         self._captured_text = captured_text
         self._create_capture_error = create_capture_error
         self._check_capture_error = check_capture_error
+        self._check_captured_texts = list(check_captured_texts or [])
 
     def inspect_url(self, *, source_url: str) -> InspectedWebSource:
         _ = source_url
@@ -95,11 +99,33 @@ class _InspectorDouble:
             captured_text=self._captured_text,
         )
 
-    def capture_policy_text(self, *, canonical_url: str) -> str:
+    def capture_policy_snapshot_source(self, *, canonical_url: str) -> CapturedPolicySnapshotSource:
         _ = canonical_url
         if self._check_capture_error is not None:
             raise self._check_capture_error
-        return self._captured_text
+        captured_text = self._captured_text
+        if self._check_captured_texts:
+            captured_text = self._check_captured_texts.pop(0)
+        checked_at = datetime.now(timezone.utc)
+        return CapturedPolicySnapshotSource(
+            canonical_url=self._inspected_source.canonical_url,
+            display_name=self._inspected_source.display_name,
+            source_type=self._inspected_source.source_type,
+            checked_at=checked_at,
+            raw_text_body=captured_text,
+            normalized_text_body=captured_text,
+            final_url=self._inspected_source.canonical_url,
+            http_status=200,
+            redirect_count=0,
+            fetch_duration_ms=20,
+            extractor_name="inspector_double",
+            extraction_strategy="stub_capture",
+        )
+
+    def capture_policy_text(self, *, canonical_url: str) -> str:
+        return self.capture_policy_snapshot_source(
+            canonical_url=canonical_url
+        ).normalized_text_body
 
 
 class _FailingBaselineAnalysisService:
@@ -161,6 +187,7 @@ def _build_shared_services(
     agreement_repository = InMemoryAgreementRepository(storage)
     report_repository = InMemoryReportRepository(storage)
     tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
+    policy_snapshot_repository = InMemoryPolicySnapshotRepository(storage)
     effective_analysis_service = analysis_service or AnalysisOrchestrationService(
         agreement_repository=agreement_repository,
         report_repository=report_repository,
@@ -173,6 +200,7 @@ def _build_shared_services(
     effective_inspector = inspector or PublicWebSourceInspector(url_content_fetcher=url_fetcher)
     tracked_policy_service = TrackedPolicyService(
         tracked_policy_repository=tracked_policy_repository,
+        policy_snapshot_repository=policy_snapshot_repository,
         analysis_service=effective_analysis_service,
         public_web_source_inspector=effective_inspector,
     )
@@ -236,6 +264,9 @@ def test_authenticated_user_can_create_list_and_delete_tracked_policies_with_sav
     assert created_tracked_policy["display_name"] == "Example Terms"
     assert created_tracked_policy["tracking_status"] == "active"
     assert created_tracked_policy["last_checked_at"] is not None
+    assert created_tracked_policy["last_successful_capture_at"] is not None
+    assert created_tracked_policy["latest_capture_status"] == "captured"
+    assert created_tracked_policy["latest_capture_message"] is None
     assert created_tracked_policy["snapshot_version_count"] == 1
     assert created_tracked_policy["baseline_report_action"] == "created"
     assert created_tracked_policy["baseline_report_id"]
@@ -374,6 +405,7 @@ def test_tracked_policy_create_reuses_existing_baseline_report_without_duplicati
     assert create_response.json()["baseline_report_action"] == "reused"
     assert create_response.json()["baseline_report_id"] == str(existing_baseline.id)
     assert create_response.json()["tracking_status"] == "active"
+    assert create_response.json()["latest_capture_status"] == "captured"
     assert create_response.json()["snapshot_version_count"] == 1
 
     report_list_response = client.get("/api/v1/reports", headers=owner_headers)
@@ -507,9 +539,94 @@ def test_tracked_policy_check_returns_actionable_error_and_marks_policy_invalid_
     tracked_policies = list_response.json()
     assert len(tracked_policies) == 1
     assert tracked_policies[0]["tracking_status"] == "invalid_source"
+    assert tracked_policies[0]["latest_capture_status"] == "capture_failed"
+    assert "blocking access" in tracked_policies[0]["latest_capture_message"].lower()
+    assert tracked_policies[0]["last_successful_capture_at"] is not None
     assert tracked_policies[0]["snapshot_version_count"] == 1
 
     report_list_response = client.get("/api/v1/reports", headers=owner_headers)
     report_list = report_list_response.json()
     assert len(report_list) == 1
     assert report_list[0]["id"] == baseline_report_id
+
+
+def test_tracked_policy_check_returns_no_change_message_without_creating_duplicate_snapshot(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            )
+        )
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+
+    check_response = client.post(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/check",
+        headers=owner_headers,
+    )
+
+    assert check_response.status_code == 200
+    assert check_response.json()["snapshot_version_count"] == 1
+    assert "no policy text changes" in (
+        check_response.json()["latest_capture_message"] or ""
+    ).lower()
+
+
+def test_tracked_policy_check_creates_new_snapshot_when_content_changes(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            ),
+            check_captured_texts=[
+                "These updated terms include arbitration, privacy, and mandatory venue clauses."
+            ],
+        )
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+
+    check_response = client.post(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/check",
+        headers=owner_headers,
+    )
+
+    assert check_response.status_code == 200
+    assert check_response.json()["snapshot_version_count"] == 2
+    assert check_response.json()["latest_capture_message"] is None
+
+    report_list_response = client.get("/api/v1/reports", headers=owner_headers)
+    report_list = report_list_response.json()
+    assert len(report_list) == 2
+    assert report_list[0]["tracked_policy_id"] == tracked_policy_id
+    assert report_list[0]["tracked_policy_snapshot_id"] is not None
+    assert report_list[0]["tracked_policy_version_number"] == 2

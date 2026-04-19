@@ -47,6 +47,8 @@ export function AnalysisSummaryCard({ report, isLoadingReport }: AnalysisSummary
 
   const scoreDescriptor = getTrustScoreDescriptor(report.trustScore);
   const normalizedScore = Math.min(100, Math.max(0, report.trustScore));
+  const shouldShowTrackedVersionPlaceholder =
+    report.trackedPolicyVersionNumber !== null && report.trackedPolicyVersionNumber > 1;
 
   return (
     <section className="panel">
@@ -85,6 +87,16 @@ export function AnalysisSummaryCard({ report, isLoadingReport }: AnalysisSummary
             <dd>{formatDashboardDate(report.createdAt)}</dd>
           </div>
         </dl>
+        {shouldShowTrackedVersionPlaceholder ? (
+          <section className="summary-placeholder">
+            <h3 className="summary-placeholder-title">Tracked Version Comparison</h3>
+            <p className="summary-placeholder-text">
+              Placeholder: comparison between Stored version #{report.trackedPolicyVersionNumber}{' '}
+              and Stored version #{report.trackedPolicyVersionNumber - 1} will appear here in
+              the later version-compare work.
+            </p>
+          </section>
+        ) : null}
       </div>
     </section>
   );

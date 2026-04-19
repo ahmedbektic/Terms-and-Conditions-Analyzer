@@ -5,14 +5,16 @@ import pytest
 
 from app.repositories.in_memory import (
     InMemoryAgreementRepository,
+    InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryTrackedPolicyRepository,
     InMemoryStorage,
 )
 from app.repositories.analysis_status import AnalysisLifecycleStatus
+from app.repositories.models import PolicySnapshotCreateInput, StoredFlaggedClause
+from app.repositories.policy_capture_status import PolicyCaptureStatus, PolicySnapshotStatus
 from app.repositories.policy_tracking_status import PolicyTrackingStatus
 from app.repositories.report_capture_kind import ReportContentCaptureKind
-from app.repositories.models import StoredFlaggedClause
 
 
 def test_report_repository_scopes_reports_by_owner() -> None:
@@ -395,3 +397,130 @@ def test_tracked_policy_repository_lists_newest_active_first() -> None:
         newer_policy.id,
         older_policy.id,
     ]
+
+
+def test_policy_snapshot_repository_persists_rich_snapshot_metadata_and_content_hash() -> None:
+    storage = InMemoryStorage()
+    tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
+    snapshot_repository = InMemoryPolicySnapshotRepository(storage)
+    tracked_policy = tracked_policy_repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        canonical_url="https://service-a.example/terms",
+        display_name="Service A Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.ACTIVE,
+        last_checked_at=datetime.now(timezone.utc),
+    )
+    captured_at = datetime.now(timezone.utc)
+
+    append_result = snapshot_repository.append_for_tracked_policy_if_changed(
+        tracked_policy_id=tracked_policy.id,
+        snapshot=PolicySnapshotCreateInput(
+            raw_text_body="Raw policy text with line breaks.\n",
+            normalized_text_body="Raw policy text with line breaks.",
+            captured_at=captured_at,
+            source_url=tracked_policy.canonical_url,
+            final_url="https://service-a.example/legal/terms",
+            http_status=200,
+            redirect_count=1,
+            fetch_duration_ms=245,
+            extractor_name="public_web_source_inspector",
+            extraction_strategy="manual_check_capture",
+            capture_status=PolicySnapshotStatus.CAPTURED,
+        ),
+    )
+
+    assert append_result.created is True
+    assert append_result.snapshot.tracked_policy_id == tracked_policy.id
+    assert append_result.snapshot.captured_at == captured_at
+    assert append_result.snapshot.content_hash
+    assert append_result.snapshot.http_status == 200
+    assert append_result.snapshot.redirect_count == 1
+    assert append_result.snapshot.fetch_duration_ms == 245
+    assert append_result.snapshot.extractor_name == "public_web_source_inspector"
+    assert append_result.snapshot.extraction_strategy == "manual_check_capture"
+    latest_snapshot = snapshot_repository.get_latest_for_tracked_policy(
+        tracked_policy_id=tracked_policy.id
+    )
+    assert latest_snapshot is not None
+    assert latest_snapshot.id == append_result.snapshot.id
+
+
+def test_policy_snapshot_repository_dedupes_unchanged_normalized_content() -> None:
+    storage = InMemoryStorage()
+    tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
+    snapshot_repository = InMemoryPolicySnapshotRepository(storage)
+    tracked_policy = tracked_policy_repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        canonical_url="https://service-a.example/terms",
+        display_name="Service A Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.ACTIVE,
+        last_checked_at=datetime.now(timezone.utc),
+    )
+    captured_at = datetime.now(timezone.utc)
+
+    first_result = snapshot_repository.append_for_tracked_policy_if_changed(
+        tracked_policy_id=tracked_policy.id,
+        snapshot=PolicySnapshotCreateInput(
+            raw_text_body="Policy text",
+            normalized_text_body="Policy text",
+            captured_at=captured_at,
+        ),
+    )
+    second_result = snapshot_repository.append_for_tracked_policy_if_changed(
+        tracked_policy_id=tracked_policy.id,
+        snapshot=PolicySnapshotCreateInput(
+            raw_text_body="Policy text",
+            normalized_text_body="Policy text",
+            captured_at=captured_at,
+        ),
+    )
+
+    assert first_result.created is True
+    assert second_result.created is False
+    assert second_result.snapshot.id == first_result.snapshot.id
+    assert len(snapshot_repository.list_for_tracked_policy(tracked_policy_id=tracked_policy.id)) == 1
+
+
+def test_tracked_policy_repository_hydrates_capture_metadata_from_snapshots() -> None:
+    storage = InMemoryStorage()
+    tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
+    snapshot_repository = InMemoryPolicySnapshotRepository(storage)
+    tracked_policy = tracked_policy_repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        canonical_url="https://service-a.example/terms",
+        display_name="Service A Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.ACTIVE,
+        last_checked_at=datetime.now(timezone.utc),
+    )
+    captured_at = datetime.now(timezone.utc)
+    snapshot_repository.append_for_tracked_policy_if_changed(
+        tracked_policy_id=tracked_policy.id,
+        snapshot=PolicySnapshotCreateInput(
+            raw_text_body="Policy text",
+            normalized_text_body="Policy text",
+            captured_at=captured_at,
+            capture_status=PolicySnapshotStatus.CAPTURED,
+        ),
+    )
+
+    updated_policy = tracked_policy_repository.update_tracked_policy_check_state(
+        tracked_policy_id=tracked_policy.id,
+        subject_type="supabase_user",
+        subject_id="user-a",
+        last_checked_at=captured_at,
+        tracking_status=PolicyTrackingStatus.ACTIVE,
+        latest_capture_status=PolicyCaptureStatus.CAPTURED,
+        latest_capture_message=None,
+    )
+
+    assert updated_policy is not None
+    assert updated_policy.snapshot_version_count == 1
+    assert updated_policy.last_successful_capture_at == captured_at
+    assert updated_policy.latest_capture_status == PolicyCaptureStatus.CAPTURED
+    assert updated_policy.latest_capture_message is None

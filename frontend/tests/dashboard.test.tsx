@@ -41,6 +41,9 @@ function buildReport(overrides?: Partial<ReportResponse>): ReportResponse {
     ],
     created_at: '2026-03-14T10:00:00Z',
     completed_at: '2026-03-14T10:00:01Z',
+    tracked_policy_id: null,
+    tracked_policy_snapshot_id: null,
+    tracked_policy_version_number: null,
     ...overrides,
   };
 }
@@ -55,6 +58,9 @@ function buildListItem(overrides?: Partial<ReportListItemResponse>): ReportListI
     trust_score: 54,
     model_name: 'deterministic-keyword-v1',
     created_at: '2026-03-14T10:00:00Z',
+    tracked_policy_id: null,
+    tracked_policy_snapshot_id: null,
+    tracked_policy_version_number: null,
     ...overrides,
   };
 }
@@ -67,6 +73,9 @@ function buildTrackedPolicy(overrides?: Partial<TrackedPolicyResponse>): Tracked
     source_type: 'url',
     tracking_status: 'active',
     last_checked_at: '2026-03-24T15:30:00Z',
+    last_successful_capture_at: '2026-03-24T15:30:00Z',
+    latest_capture_status: 'captured',
+    latest_capture_message: null,
     created_at: '2026-03-24T15:30:00Z',
     snapshot_version_count: 1,
     ...overrides,
@@ -376,10 +385,12 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Example Terms')).toBeTruthy();
     expect(screen.getAllByText('https://example.com/legal/terms').length).toBeGreaterThan(0);
     expect(screen.getByText(/active/i)).toBeTruthy();
-    expect(screen.getByText(/1 stored version - last checked/i)).toBeTruthy();
+    expect(screen.getByText('1 stored version')).toBeTruthy();
+    expect(screen.getByText(/Last check attempt:/i)).toBeTruthy();
+    expect(screen.getByText(/Last successful capture:/i)).toBeTruthy();
     expect(
       screen.getByText(
-        'New watchlist entries begin at 1 stored version because enrollment saves the verified baseline as the first tracked capture.',
+        'Stored versions come from watchlist captures. Saved reports remain separate in report history and can still be selected independently.',
       ),
     ).toBeTruthy();
     expect(screen.getByText('Trust score: 54 / 100')).toBeTruthy();
@@ -552,6 +563,9 @@ describe('DashboardPage', () => {
       canonical_url: 'https://example.com/legal/terms',
       display_name: 'Example Terms',
       tracking_status: 'invalid_source',
+      latest_capture_status: 'capture_failed',
+      latest_capture_message:
+        'That policy page is blocking access. Use a public terms or privacy page that does not require sign-in.',
       snapshot_version_count: 1,
     });
     let reportListCalls = 0;
@@ -596,18 +610,188 @@ describe('DashboardPage', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(
+        screen.getAllByText(
           'That policy page is blocking access. Use a public terms or privacy page that does not require sign-in.',
-        ),
+        ).length,
       ).toBeTruthy(),
     );
     expect(screen.getByText(/invalid source/i)).toBeTruthy();
     expect(
+      screen.getAllByText(
+        'That policy page is blocking access. Use a public terms or privacy page that does not require sign-in.',
+      ).length,
+    ).toBeTruthy();
+    expect(reportListCalls).toBe(2);
+  });
+
+  it('surfaces a no-change check result without increasing the stored version count', async () => {
+    const trackedPolicy = buildTrackedPolicy({
+      id: '20000000-0000-4000-8000-000000000005',
+      canonical_url: 'https://example.com/legal/terms',
+      display_name: 'Example Terms',
+      snapshot_version_count: 1,
+      latest_capture_status: 'captured',
+      latest_capture_message: null,
+    });
+    const unchangedTrackedPolicy = buildTrackedPolicy({
+      id: '20000000-0000-4000-8000-000000000005',
+      canonical_url: 'https://example.com/legal/terms',
+      display_name: 'Example Terms',
+      snapshot_version_count: 1,
+      latest_capture_status: 'captured',
+      latest_capture_message:
+        'No policy text changes were detected, so no new stored version was created.',
+    });
+    let trackedPolicyListCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        return jsonResponse([]);
+      }
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        trackedPolicyListCalls += 1;
+        if (trackedPolicyListCalls === 1) {
+          return jsonResponse([trackedPolicy]);
+        }
+        return jsonResponse([unchangedTrackedPolicy]);
+      }
+      if (
+        url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000005/check') &&
+        method === 'POST'
+      ) {
+        return jsonResponse(unchangedTrackedPolicy);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(screen.getByText('Example Terms')).toBeTruthy());
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Check now' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByText(
+          'No policy text changes were detected, so no new stored version was created.',
+        ).length,
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText('1 stored version')).toBeTruthy();
+  });
+
+  it('adds a tracked snapshot report to Saved Reports after a changed check and shows the compare placeholder', async () => {
+    const baselineReport = buildReport({
+      id: '00000000-0000-4000-8000-000000000010',
+      agreement_id: '10000000-0000-4000-8000-000000000010',
+      source_value: 'https://concise.plus/terms.php',
+      summary: 'Baseline summary',
+      trust_score: 48,
+    });
+    const trackedVersionReport = buildReport({
+      id: '00000000-0000-4000-8000-000000000011',
+      agreement_id: '10000000-0000-4000-8000-000000000011',
+      source_value: 'https://concise.plus/terms.php',
+      summary: 'Updated summary for stored version 2',
+      trust_score: 45,
+      tracked_policy_id: '20000000-0000-4000-8000-000000000011',
+      tracked_policy_snapshot_id: '30000000-0000-4000-8000-000000000011',
+      tracked_policy_version_number: 2,
+    });
+    const initialTrackedPolicy = buildTrackedPolicy({
+      id: '20000000-0000-4000-8000-000000000011',
+      canonical_url: 'https://concise.plus/terms.php',
+      display_name: 'Terms of Service | Concise',
+      snapshot_version_count: 1,
+    });
+    const updatedTrackedPolicy = buildTrackedPolicy({
+      id: '20000000-0000-4000-8000-000000000011',
+      canonical_url: 'https://concise.plus/terms.php',
+      display_name: 'Terms of Service | Concise',
+      snapshot_version_count: 2,
+    });
+    let reportListCalls = 0;
+    let trackedPolicyListCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        reportListCalls += 1;
+        if (reportListCalls === 1) {
+          return jsonResponse([buildListItem({
+            id: baselineReport.id,
+            agreement_id: baselineReport.agreement_id,
+            source_value: baselineReport.source_value,
+            trust_score: baselineReport.trust_score,
+          })]);
+        }
+        return jsonResponse([
+          buildListItem({
+            id: trackedVersionReport.id,
+            agreement_id: trackedVersionReport.agreement_id,
+            source_value: trackedVersionReport.source_value,
+            trust_score: trackedVersionReport.trust_score,
+            tracked_policy_id: trackedVersionReport.tracked_policy_id,
+            tracked_policy_snapshot_id: trackedVersionReport.tracked_policy_snapshot_id,
+            tracked_policy_version_number: trackedVersionReport.tracked_policy_version_number,
+          }),
+          buildListItem({
+            id: baselineReport.id,
+            agreement_id: baselineReport.agreement_id,
+            source_value: baselineReport.source_value,
+            trust_score: baselineReport.trust_score,
+          }),
+        ]);
+      }
+      if (url.endsWith(`/reports/${trackedVersionReport.id}`) && method === 'GET') {
+        return jsonResponse(trackedVersionReport);
+      }
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        trackedPolicyListCalls += 1;
+        if (trackedPolicyListCalls === 1) {
+          return jsonResponse([initialTrackedPolicy]);
+        }
+        return jsonResponse([updatedTrackedPolicy]);
+      }
+      if (
+        url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000011/check') &&
+        method === 'POST'
+      ) {
+        return jsonResponse(updatedTrackedPolicy);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(screen.getByText('Terms of Service | Concise')).toBeTruthy());
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Check now' }));
+
+    await waitFor(() => expect(screen.getByText('Stored version #2')).toBeTruthy());
+
+    await user.click(
+      screen.getByRole('button', {
+        name: /URL https:\/\/concise\.plus\/terms\.php Stored version #2/i,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText('Updated summary for stored version 2')).toBeTruthy(),
+    );
+    expect(screen.getByText('Tracked Version Comparison')).toBeTruthy();
+    expect(
       screen.getByText(
-        "The latest check could not read this page. Use the service's public terms, privacy, or legal page if the link changed.",
+        'Placeholder: comparison between Stored version #2 and Stored version #1 will appear here in the later version-compare work.',
       ),
     ).toBeTruthy();
-    expect(reportListCalls).toBe(1);
   });
 
   it('lets the user remove a tracked policy from the watchlist', async () => {

@@ -71,6 +71,9 @@ def list_reports(
             trust_score=report.trust_score,
             model_name=report.model_name,
             created_at=report.created_at,
+            tracked_policy_id=report.tracked_policy_id,
+            tracked_policy_snapshot_id=report.tracked_policy_snapshot_id,
+            tracked_policy_version_number=report.tracked_policy_version_number,
         )
         for report in reports
     ]
