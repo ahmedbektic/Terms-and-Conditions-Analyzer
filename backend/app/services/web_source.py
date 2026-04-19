@@ -189,9 +189,7 @@ class SimpleFetchedContentExtractor:
 
         return self._normalize_text(self._extract_raw_text_from_html(html_text))
 
-    def extract_for_snapshot(
-        self, *, body_text: str, content_type: str
-    ) -> ExtractedFetchedContent:
+    def extract_for_snapshot(self, *, body_text: str, content_type: str) -> ExtractedFetchedContent:
         """Return both raw and normalized extracted text for snapshot storage."""
 
         normalized_content_type = content_type.lower()
@@ -308,19 +306,13 @@ class PublicWebSourceInspector:
         for snapshot storage (same rules as watchlist registration).
         """
 
-        return self.capture_policy_snapshot_source(
-            canonical_url=canonical_url
-        ).normalized_text_body
+        return self.capture_policy_snapshot_source(canonical_url=canonical_url).normalized_text_body
 
-    def capture_policy_snapshot_source(
-        self, *, canonical_url: str
-    ) -> CapturedPolicySnapshotSource:
+    def capture_policy_snapshot_source(self, *, canonical_url: str) -> CapturedPolicySnapshotSource:
         """Fetch a canonical policy URL and return rich snapshot-capture metadata."""
 
         stable_canonical_url = canonicalize_public_source_url(canonical_url)
-        payload, extracted = self._fetch_extract_and_validate(
-            canonical_url=stable_canonical_url
-        )
+        payload, extracted = self._fetch_extract_and_validate(canonical_url=stable_canonical_url)
         display_name = self._derive_display_name(
             canonical_url=stable_canonical_url,
             body_text=payload.body_text,
@@ -502,13 +494,7 @@ def _build_fetch_error_details(error: Exception) -> tuple[str, bool]:
 def _build_unreadable_source_message(*, extracted_text: str, body_text: str) -> str:
     normalized_body_text = normalize_untrusted_text(body_text)
     if _LOGIN_WALL_PATTERN.search(normalized_body_text):
-        return (
-            "That page appears to require sign-in or special access. Use a public terms or privacy page that anyone can open."
-        )
+        return "That page appears to require sign-in or special access. Use a public terms or privacy page that anyone can open."
     if not extracted_text.strip():
-        return (
-            "That page did not expose readable policy text. Use the service's public terms, privacy, or legal page instead."
-        )
-    return (
-        "That URL does not look like a readable policy page. Use the service's public terms, privacy, or legal page instead."
-    )
+        return "That page did not expose readable policy text. Use the service's public terms, privacy, or legal page instead."
+    return "That URL does not look like a readable policy page. Use the service's public terms, privacy, or legal page instead."

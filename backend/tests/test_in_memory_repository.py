@@ -482,7 +482,9 @@ def test_policy_snapshot_repository_dedupes_unchanged_normalized_content() -> No
     assert first_result.created is True
     assert second_result.created is False
     assert second_result.snapshot.id == first_result.snapshot.id
-    assert len(snapshot_repository.list_for_tracked_policy(tracked_policy_id=tracked_policy.id)) == 1
+    assert (
+        len(snapshot_repository.list_for_tracked_policy(tracked_policy_id=tracked_policy.id)) == 1
+    )
 
 
 def test_tracked_policy_repository_hydrates_capture_metadata_from_snapshots() -> None:

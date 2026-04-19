@@ -150,7 +150,9 @@ def test_policy_snapshot_service_keeps_version_count_stable_when_content_is_unch
         )
     )
     subject, tracked_policy = _create_tracked_policy(tracked_policy_repository)
-    first_result = service.check_tracked_policy(subject=subject, tracked_policy_id=tracked_policy.id)
+    first_result = service.check_tracked_policy(
+        subject=subject, tracked_policy_id=tracked_policy.id
+    )
 
     second_result = service.check_tracked_policy(
         subject=subject,
@@ -160,9 +162,10 @@ def test_policy_snapshot_service_keeps_version_count_stable_when_content_is_unch
     assert first_result.snapshot_created is True
     assert second_result.snapshot_created is False
     assert second_result.tracked_policy.snapshot_version_count == 1
-    assert "no policy text changes" in (
-        second_result.tracked_policy.latest_capture_message or ""
-    ).lower()
+    assert (
+        "no policy text changes"
+        in (second_result.tracked_policy.latest_capture_message or "").lower()
+    )
     assert (
         len(snapshot_repository.list_for_tracked_policy(tracked_policy_id=tracked_policy.id)) == 1
     )
@@ -200,7 +203,9 @@ def test_policy_snapshot_service_creates_new_snapshot_when_content_changes() -> 
         )
     )
     subject, tracked_policy = _create_tracked_policy(tracked_policy_repository)
-    first_result = service.check_tracked_policy(subject=subject, tracked_policy_id=tracked_policy.id)
+    first_result = service.check_tracked_policy(
+        subject=subject, tracked_policy_id=tracked_policy.id
+    )
 
     second_result = service.check_tracked_policy(
         subject=subject,
@@ -285,9 +290,7 @@ def test_policy_snapshot_service_marks_policy_invalid_source_for_malformed_page(
     assert refreshed.tracking_status == PolicyTrackingStatus.INVALID_SOURCE
     assert refreshed.latest_capture_status == PolicyCaptureStatus.CAPTURE_FAILED
     assert refreshed.snapshot_version_count == 0
-    assert (
-        snapshot_repository.list_for_tracked_policy(tracked_policy_id=tracked_policy.id) == []
-    )
+    assert snapshot_repository.list_for_tracked_policy(tracked_policy_id=tracked_policy.id) == []
 
 
 def test_policy_snapshot_service_retry_safe_deduplication_reuses_existing_snapshot() -> None:
@@ -323,7 +326,9 @@ def test_policy_snapshot_service_retry_safe_deduplication_reuses_existing_snapsh
     )
     subject, tracked_policy = _create_tracked_policy(tracked_policy_repository)
 
-    first_result = service.check_tracked_policy(subject=subject, tracked_policy_id=tracked_policy.id)
+    first_result = service.check_tracked_policy(
+        subject=subject, tracked_policy_id=tracked_policy.id
+    )
     second_result = service.check_tracked_policy(
         subject=subject,
         tracked_policy_id=tracked_policy.id,

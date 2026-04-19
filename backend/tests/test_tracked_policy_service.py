@@ -140,9 +140,7 @@ class _StubInspector:
     def capture_policy_text(self, *, canonical_url: str) -> str:
         _ = canonical_url
         self.capture_policy_text_calls += 1
-        return self.capture_policy_snapshot_source(
-            canonical_url=canonical_url
-        ).normalized_text_body
+        return self.capture_policy_snapshot_source(canonical_url=canonical_url).normalized_text_body
 
 
 class _FailingBaselineAnalysisService:
@@ -180,7 +178,9 @@ class _FailingBaselineAnalysisService:
     ) -> str:
         _ = subject
         _ = report_id
-        raise AssertionError("get_report_terms_text should not be called when baseline creation fails")
+        raise AssertionError(
+            "get_report_terms_text should not be called when baseline creation fails"
+        )
 
 
 def _build_services(
@@ -398,7 +398,9 @@ def test_tracked_policy_service_reuses_existing_fetched_url_baseline_report() ->
     assert len(reports) == 1
 
 
-def test_tracked_policy_service_creates_fresh_baseline_when_only_submitted_text_report_exists() -> None:
+def test_tracked_policy_service_creates_fresh_baseline_when_only_submitted_text_report_exists() -> (
+    None
+):
     checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
     service, analysis_service = _build_services(
         inspector=_StubInspector(
@@ -440,7 +442,9 @@ def test_tracked_policy_service_creates_fresh_baseline_when_only_submitted_text_
     assert created_baseline_report.content_capture_kind == ReportContentCaptureKind.FETCHED_URL
 
 
-def test_tracked_policy_service_rejects_duplicate_active_canonical_url_per_owner_before_new_baseline_work() -> None:
+def test_tracked_policy_service_rejects_duplicate_active_canonical_url_per_owner_before_new_baseline_work() -> (
+    None
+):
     checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
     inspector = _StubInspector(
         InspectedWebSource(
@@ -471,7 +475,9 @@ def test_tracked_policy_service_rejects_duplicate_active_canonical_url_per_owner
     assert len(analysis_service.list_reports(subject=subject)) == 1
 
 
-def test_tracked_policy_service_does_not_persist_watchlist_row_when_baseline_generation_fails() -> None:
+def test_tracked_policy_service_does_not_persist_watchlist_row_when_baseline_generation_fails() -> (
+    None
+):
     checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
     service, _ = _build_services(
         inspector=_StubInspector(
@@ -496,7 +502,9 @@ def test_tracked_policy_service_does_not_persist_watchlist_row_when_baseline_gen
     assert service.list_tracked_policies(subject=subject) == []
 
 
-def test_tracked_policy_service_marks_policy_invalid_source_and_does_not_create_new_saved_reports_when_check_fails() -> None:
+def test_tracked_policy_service_marks_policy_invalid_source_and_does_not_create_new_saved_reports_when_check_fails() -> (
+    None
+):
     checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
     service, analysis_service = _build_services(
         inspector=_StubInspector(
@@ -570,7 +578,9 @@ def test_tracked_policy_check_does_not_create_new_saved_reports() -> None:
     assert len(analysis_service.list_reports(subject=subject)) == 1
 
 
-def test_tracked_policy_check_does_not_increment_version_count_when_baseline_snapshot_matches() -> None:
+def test_tracked_policy_check_does_not_increment_version_count_when_baseline_snapshot_matches() -> (
+    None
+):
     checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
     service, _ = _build_services(
         inspector=_StubInspector(

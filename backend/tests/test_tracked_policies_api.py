@@ -123,9 +123,7 @@ class _InspectorDouble:
         )
 
     def capture_policy_text(self, *, canonical_url: str) -> str:
-        return self.capture_policy_snapshot_source(
-            canonical_url=canonical_url
-        ).normalized_text_body
+        return self.capture_policy_snapshot_source(canonical_url=canonical_url).normalized_text_body
 
 
 class _FailingBaselineAnalysisService:
@@ -158,7 +156,9 @@ class _FailingBaselineAnalysisService:
     def get_report_terms_text(self, *, subject: RequestSubject, report_id) -> str:
         _ = subject
         _ = report_id
-        raise AssertionError("get_report_terms_text should not be called when baseline creation fails")
+        raise AssertionError(
+            "get_report_terms_text should not be called when baseline creation fails"
+        )
 
 
 def _issue_token(*, sub: str, exp_offset_seconds: int = 3600) -> str:
@@ -582,9 +582,9 @@ def test_tracked_policy_check_returns_no_change_message_without_creating_duplica
 
     assert check_response.status_code == 200
     assert check_response.json()["snapshot_version_count"] == 1
-    assert "no policy text changes" in (
-        check_response.json()["latest_capture_message"] or ""
-    ).lower()
+    assert (
+        "no policy text changes" in (check_response.json()["latest_capture_message"] or "").lower()
+    )
 
 
 def test_tracked_policy_check_creates_new_snapshot_when_content_changes(

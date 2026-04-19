@@ -153,7 +153,7 @@ class InMemoryReportRepository:
             for report in self._storage.reports.values()
             if report.subject_type == subject_type and report.subject_id == subject_id
         ]
-        return sorted(reports, key=lambda report: report.created_at, reverse=True)
+        return self._sort_reports_newest_first(reports)
 
     def get_for_subject(
         self,
@@ -186,7 +186,18 @@ class InMemoryReportRepository:
         ]
         if not eligible_reports:
             return None
-        return sorted(eligible_reports, key=lambda report: report.created_at, reverse=True)[0]
+        return self._sort_reports_newest_first(eligible_reports)[0]
+
+    def _sort_reports_newest_first(self, reports: list[StoredReport]) -> list[StoredReport]:
+        indexed_reports = list(enumerate(reports))
+        return [
+            report
+            for _, report in sorted(
+                indexed_reports,
+                key=lambda item: (item[1].created_at, item[0]),
+                reverse=True,
+            )
+        ]
 
 
 class InMemoryTrackedPolicyRepository:
@@ -237,10 +248,7 @@ class InMemoryTrackedPolicyRepository:
             and tracked_policy.active
         ]
         return sorted(
-            (
-                self._hydrate_tracked_policy(tracked_policy)
-                for tracked_policy in tracked_policies
-            ),
+            (self._hydrate_tracked_policy(tracked_policy) for tracked_policy in tracked_policies),
             key=lambda tracked_policy: tracked_policy.created_at,
             reverse=True,
         )
@@ -318,7 +326,9 @@ class InMemoryTrackedPolicyRepository:
         if normalized_capture_status == PolicyCaptureStatus.CAPTURED:
             latest_snapshot = self._get_latest_snapshot(tracked_policy_id)
             last_successful_capture_at = (
-                latest_snapshot.captured_at if latest_snapshot is not None else last_successful_capture_at
+                latest_snapshot.captured_at
+                if latest_snapshot is not None
+                else last_successful_capture_at
             )
         updated = replace(
             tracked_policy,
