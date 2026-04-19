@@ -35,6 +35,7 @@ from .content_ingestion import (
 from .extraction_contracts import (
     ExtractionIngestionRequest,
     ExtractionIngestionResult,
+    ExtractionMetadata,
     ExtractionSourceKind,
 )
 
@@ -144,6 +145,41 @@ class SubmissionPreparationService:
                 agreed_at=agreed_at,
                 source_metadata={"ingestion_origin": "stored_agreement"},
             )
+        )
+
+    def prepare_verified_url_capture_for_analysis(
+        self,
+        *,
+        canonical_source_url: str,
+        display_name: str | None,
+        captured_text: str,
+    ) -> ExtractionIngestionResult:
+        """Prepare a server-fetched URL capture for saved-report generation."""
+
+        normalized_source_url = self._normalize_optional_value(canonical_source_url)
+        if not normalized_source_url:
+            raise InvalidSubmissionError("Provide a canonical source URL for baseline generation.")
+
+        normalized_title = self._normalize_optional_value(display_name)
+        normalized_terms_text = self.prepare_terms_text_for_storage(terms_text=captured_text)
+
+        return ExtractionIngestionResult(
+            source_kind=ExtractionSourceKind.URL,
+            original_source_value=normalized_source_url,
+            normalized_text=normalized_terms_text,
+            source_type="url",
+            source_value=normalized_source_url,
+            raw_input_excerpt=normalized_terms_text[:280],
+            title=normalized_title,
+            source_url=normalized_source_url,
+            agreed_at=None,
+            metadata=ExtractionMetadata(
+                extraction_strategy="url_fetch_verified_capture",
+                extractor_name="public_web_source_inspector",
+                confidence=0.9,
+                warnings=(),
+                errors=(),
+            ),
         )
 
     def prepare_ingestion_request(

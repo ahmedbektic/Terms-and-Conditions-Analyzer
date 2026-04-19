@@ -11,6 +11,7 @@ import type {
   ReportAnalyzeRequest,
   ReportListItemResponse,
   ReportResponse,
+  TrackedPolicyCreateResponse,
   TrackedPolicyCreateRequest,
   TrackedPolicyResponse,
 } from './contracts';
@@ -28,6 +29,9 @@ export interface DashboardApiClientConfig {
   getAccessToken?: () => string | null;
   fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
+
+const REQUEST_TIMEOUT_MS = 15000;
+const LONG_RUNNING_REQUEST_TIMEOUT_MS = 90000;
 
 export class DashboardApiError extends Error {
   readonly status: number;
@@ -81,16 +85,27 @@ export class DashboardApiClient {
     return this.request<ReportListItemResponse[]>('/reports');
   }
 
-  async createTrackedPolicy(payload: TrackedPolicyCreateRequest): Promise<TrackedPolicyResponse> {
+  async createTrackedPolicy(
+    payload: TrackedPolicyCreateRequest,
+  ): Promise<TrackedPolicyCreateResponse> {
     const sanitizedPayload = sanitizeTrackedPolicyCreateInput(payload);
-    return this.request<TrackedPolicyResponse>('/tracked-policies', {
+    return this.request<TrackedPolicyCreateResponse>('/tracked-policies', {
       method: 'POST',
       body: JSON.stringify(sanitizedPayload),
-    });
+    }, { timeoutMs: LONG_RUNNING_REQUEST_TIMEOUT_MS });
   }
 
   async listTrackedPolicies(): Promise<TrackedPolicyResponse[]> {
     return this.request<TrackedPolicyResponse[]>('/tracked-policies');
+  }
+
+  async checkTrackedPolicy(trackedPolicyId: string): Promise<TrackedPolicyResponse> {
+    return this.request<TrackedPolicyResponse>(
+      `/tracked-policies/${validateUuid(trackedPolicyId, 'Tracked policy id')}/check`,
+      {
+        method: 'POST',
+      },
+    );
   }
 
   async removeTrackedPolicy(trackedPolicyId: string): Promise<void> {
@@ -107,14 +122,18 @@ export class DashboardApiClient {
     return this.request<ReportResponse>('/reports/analyze', {
       method: 'POST',
       body: JSON.stringify(sanitizedPayload),
-    });
+    }, { timeoutMs: LONG_RUNNING_REQUEST_TIMEOUT_MS });
   }
 
   async getReport(reportId: string): Promise<ReportResponse> {
     return this.request<ReportResponse>(`/reports/${validateUuid(reportId, 'Report id')}`);
   }
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  private async request<T>(
+    path: string,
+    init?: RequestInit,
+    options?: { timeoutMs?: number },
+  ): Promise<T> {
     const accessToken = this.getAccessToken?.();
     const headers = new Headers({
       'Content-Type': 'application/json',
@@ -132,10 +151,38 @@ export class DashboardApiClient {
       });
     }
 
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      ...init,
-      headers,
-    });
+    const timeoutController = new AbortController();
+    const timeoutHandle = globalThis.setTimeout(() => {
+      timeoutController.abort();
+    }, options?.timeoutMs ?? REQUEST_TIMEOUT_MS);
+
+    if (init?.signal) {
+      if (init.signal.aborted) {
+        timeoutController.abort();
+      } else {
+        init.signal.addEventListener('abort', () => timeoutController.abort(), { once: true });
+      }
+    }
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        ...init,
+        headers,
+        signal: timeoutController.signal,
+      });
+    } catch (error) {
+      if (timeoutController.signal.aborted && !init?.signal?.aborted) {
+        throw new DashboardApiError(
+          'API request timed out. Check that the backend is reachable and try again.',
+          504,
+          null,
+        );
+      }
+      throw error;
+    } finally {
+      globalThis.clearTimeout(timeoutHandle);
+    }
 
     const contentType = response.headers.get('content-type') ?? '';
     const isJson = contentType.includes('application/json');

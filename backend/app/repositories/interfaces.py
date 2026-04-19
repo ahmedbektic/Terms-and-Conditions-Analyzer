@@ -12,6 +12,7 @@ from uuid import UUID
 from .analysis_status import AnalysisLifecycleStatus
 from .models import StoredAgreement, StoredFlaggedClause, StoredReport, StoredTrackedPolicy
 from .policy_tracking_status import PolicyTrackingStatus
+from .report_capture_kind import ReportContentCaptureKind
 
 
 class AgreementRepository(Protocol):
@@ -55,6 +56,10 @@ class ReportRepository(Protocol):
         model_name: str,
         flagged_clauses: list[StoredFlaggedClause],
         completed_at: datetime | None,
+        canonical_source_url: str | None = None,
+        content_capture_kind: ReportContentCaptureKind | str = (
+            ReportContentCaptureKind.LEGACY_UNKNOWN
+        ),
     ) -> StoredReport: ...
 
     def list_for_subject(self, *, subject_type: str, subject_id: str) -> list[StoredReport]: ...
@@ -63,6 +68,14 @@ class ReportRepository(Protocol):
         self,
         *,
         report_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredReport | None: ...
+
+    def get_latest_eligible_baseline_report_for_subject(
+        self,
+        *,
+        canonical_source_url: str,
         subject_type: str,
         subject_id: str,
     ) -> StoredReport | None: ...

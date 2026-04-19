@@ -11,6 +11,7 @@ from app.repositories.in_memory import (
 )
 from app.repositories.analysis_status import AnalysisLifecycleStatus
 from app.repositories.policy_tracking_status import PolicyTrackingStatus
+from app.repositories.report_capture_kind import ReportContentCaptureKind
 from app.repositories.models import StoredFlaggedClause
 
 
@@ -210,6 +211,104 @@ def test_report_repository_rejects_unknown_lifecycle_status() -> None:
             flagged_clauses=[],
             completed_at=datetime.now(timezone.utc),
         )
+
+
+def test_report_repository_returns_latest_eligible_baseline_report_for_canonical_url() -> None:
+    storage = InMemoryStorage()
+    agreement_repository = InMemoryAgreementRepository(storage)
+    report_repository = InMemoryReportRepository(storage)
+    agreement = agreement_repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        title="Terms",
+        source_url="https://example.com/terms",
+        agreed_at=None,
+        terms_text="This terms text is long enough to pass validation.",
+    )
+
+    report_repository.create(
+        agreement_id=agreement.id,
+        subject_type="supabase_user",
+        subject_id="user-a",
+        source_type="url",
+        source_value="https://example.com/terms",
+        raw_input_excerpt="fallback excerpt",
+        status=AnalysisLifecycleStatus.COMPLETED,
+        summary="fallback summary",
+        trust_score=50,
+        model_name="test-model",
+        flagged_clauses=[],
+        completed_at=datetime.now(timezone.utc),
+        canonical_source_url="https://example.com/terms",
+        content_capture_kind=ReportContentCaptureKind.FALLBACK_PLACEHOLDER,
+    )
+
+    time.sleep(0.001)
+
+    fetched_report = report_repository.create(
+        agreement_id=agreement.id,
+        subject_type="supabase_user",
+        subject_id="user-a",
+        source_type="url",
+        source_value="https://example.com/terms",
+        raw_input_excerpt="fetched excerpt",
+        status=AnalysisLifecycleStatus.COMPLETED,
+        summary="fetched summary",
+        trust_score=55,
+        model_name="test-model",
+        flagged_clauses=[],
+        completed_at=datetime.now(timezone.utc),
+        canonical_source_url="https://example.com/terms",
+        content_capture_kind=ReportContentCaptureKind.FETCHED_URL,
+    )
+
+    latest_baseline = report_repository.get_latest_eligible_baseline_report_for_subject(
+        canonical_source_url="https://example.com/terms",
+        subject_type="supabase_user",
+        subject_id="user-a",
+    )
+
+    assert latest_baseline is not None
+    assert latest_baseline.id == fetched_report.id
+
+
+def test_report_repository_ignores_legacy_or_submitted_reports_for_baseline_lookup() -> None:
+    storage = InMemoryStorage()
+    agreement_repository = InMemoryAgreementRepository(storage)
+    report_repository = InMemoryReportRepository(storage)
+    agreement = agreement_repository.create(
+        subject_type="supabase_user",
+        subject_id="user-a",
+        title="Terms",
+        source_url="https://example.com/terms",
+        agreed_at=None,
+        terms_text="This terms text is long enough to pass validation.",
+    )
+
+    report_repository.create(
+        agreement_id=agreement.id,
+        subject_type="supabase_user",
+        subject_id="user-a",
+        source_type="url",
+        source_value="https://example.com/terms",
+        raw_input_excerpt="submitted excerpt",
+        status=AnalysisLifecycleStatus.COMPLETED,
+        summary="submitted summary",
+        trust_score=60,
+        model_name="test-model",
+        flagged_clauses=[],
+        completed_at=datetime.now(timezone.utc),
+        canonical_source_url="https://example.com/terms",
+        content_capture_kind=ReportContentCaptureKind.SUBMITTED_TEXT,
+    )
+
+    latest_baseline = report_repository.get_latest_eligible_baseline_report_for_subject(
+        canonical_source_url="https://example.com/terms",
+        subject_type="supabase_user",
+        subject_id="user-a",
+    )
+
+    assert latest_baseline is None
 
 
 def test_tracked_policy_repository_scopes_active_policies_by_owner_and_hides_inactive() -> None:

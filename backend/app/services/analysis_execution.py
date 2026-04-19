@@ -18,8 +18,10 @@ from typing import Protocol
 from ..repositories.analysis_status import AnalysisLifecycleStatus
 from ..repositories.interfaces import ReportRepository
 from ..repositories.models import StoredAgreement, StoredReport
+from ..repositories.report_capture_kind import ReportContentCaptureKind
 from .extraction_contracts import ExtractionIngestionResult
 from .ai_provider import AnalysisInput, AnalysisInputMetadata, AnalysisProvider
+from .web_source import canonicalize_public_source_url
 
 LOGGER = getLogger(__name__)
 
@@ -91,6 +93,8 @@ class SyncAnalysisExecutionStrategy:
             model_name=provider_result.model_name,
             flagged_clauses=provider_result.flagged_clauses,
             completed_at=provider_result.completed_at,
+            canonical_source_url=_derive_canonical_source_url(request.ingestion_result),
+            content_capture_kind=_derive_content_capture_kind(request.ingestion_result),
         )
 
 
@@ -140,3 +144,34 @@ def _to_analysis_input_metadata(
         trace_id=None,
         attributes={},
     )
+
+
+def _derive_canonical_source_url(ingestion_result: ExtractionIngestionResult) -> str | None:
+    source_url = ingestion_result.source_url
+    if not source_url:
+        return None
+    try:
+        return canonicalize_public_source_url(source_url)
+    except ValueError:
+        return None
+
+
+def _derive_content_capture_kind(
+    ingestion_result: ExtractionIngestionResult,
+) -> ReportContentCaptureKind:
+    strategy = ingestion_result.metadata.extraction_strategy.strip().lower()
+
+    if strategy == "url_fetch_fallback_placeholder":
+        return ReportContentCaptureKind.FALLBACK_PLACEHOLDER
+
+    if strategy in {
+        "direct_text_submission",
+        "extension_text_submission",
+        "url_with_submitted_text",
+    }:
+        return ReportContentCaptureKind.SUBMITTED_TEXT
+
+    if ingestion_result.source_kind.value == "url" and strategy.startswith("url_fetch_"):
+        return ReportContentCaptureKind.FETCHED_URL
+
+    return ReportContentCaptureKind.LEGACY_UNKNOWN

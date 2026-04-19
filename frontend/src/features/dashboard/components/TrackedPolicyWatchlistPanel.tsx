@@ -9,8 +9,10 @@ interface TrackedPolicyWatchlistPanelProps {
   trackedPolicies: DashboardTrackedPolicy[];
   isLoadingTrackedPolicies: boolean;
   isCreatingTrackedPolicy: boolean;
+  checkingTrackedPolicyId: string | null;
   removingTrackedPolicyId: string | null;
   onCreateTrackedPolicy: (sourceUrl: string) => Promise<void>;
+  onCheckTrackedPolicy: (trackedPolicyId: string) => Promise<void>;
   onRemoveTrackedPolicy: (trackedPolicyId: string) => Promise<void>;
 }
 
@@ -32,12 +34,43 @@ function formatTrackingStatusLabel(trackingStatus: string): string {
   return trackingStatus.replace(/_/g, ' ');
 }
 
+function getTrackingStatusDescription(trackedPolicy: DashboardTrackedPolicy): string | null {
+  const normalizedStatus = trackedPolicy.trackingStatus.toLowerCase();
+
+  if (normalizedStatus === 'pending_first_snapshot') {
+    return 'This older watchlist entry has not stored its first version yet. Run Check now to capture one.';
+  }
+
+  if (normalizedStatus === 'invalid_source') {
+    return "The latest check could not read this page. Use the service's public terms, privacy, or legal page if the link changed.";
+  }
+
+  if (normalizedStatus === 'active' && trackedPolicy.snapshotVersionCount === 0) {
+    return 'Tracking is active, but no stored versions exist yet.';
+  }
+
+  return null;
+}
+
+function getLastCheckedLabel(trackedPolicy: DashboardTrackedPolicy): string {
+  if (
+    trackedPolicy.trackingStatus.toLowerCase() === 'pending_first_snapshot' &&
+    trackedPolicy.snapshotVersionCount === 0
+  ) {
+    return 'URL verified';
+  }
+
+  return 'Last checked';
+}
+
 export function TrackedPolicyWatchlistPanel({
   trackedPolicies,
   isLoadingTrackedPolicies,
   isCreatingTrackedPolicy,
+  checkingTrackedPolicyId,
   removingTrackedPolicyId,
   onCreateTrackedPolicy,
+  onCheckTrackedPolicy,
   onRemoveTrackedPolicy,
 }: TrackedPolicyWatchlistPanelProps) {
   const [sourceUrl, setSourceUrl] = useState('');
@@ -62,8 +95,8 @@ export function TrackedPolicyWatchlistPanel({
       <header className="panel-header panel-header-tight">
         <h2 className="panel-title">Policy Watchlist</h2>
         <p className="panel-description">
-          Register legal page URLs for ongoing tracking. New entries are verified before they are
-          saved.
+          Register legal page URLs for ongoing tracking. New entries are verified and backed by a
+          saved baseline report that also seeds the first tracked version.
         </p>
       </header>
 
@@ -79,9 +112,11 @@ export function TrackedPolicyWatchlistPanel({
         </label>
         <div className="actions watchlist-actions">
           <button type="submit" className="button-primary" disabled={isCreatingTrackedPolicy}>
-            {isCreatingTrackedPolicy ? 'Adding...' : 'Add to watchlist'}
+            {isCreatingTrackedPolicy ? 'Preparing...' : 'Add to watchlist'}
           </button>
-          <p className="submit-hint">Only public, readable policy pages can be tracked.</p>
+          <p className="submit-hint">
+            Only public, readable policy pages can be tracked and enrolled.
+          </p>
         </div>
       </form>
 
@@ -106,12 +141,17 @@ export function TrackedPolicyWatchlistPanel({
                 <span className="watchlist-meta">
                   {trackedPolicy.snapshotVersionCount} stored version
                   {trackedPolicy.snapshotVersionCount === 1 ? '' : 's'}
-                  {' · '}
-                  Last checked{' '}
+                  {' - '}
+                  {getLastCheckedLabel(trackedPolicy)}{' '}
                   {trackedPolicy.lastCheckedAt
                     ? formatDashboardDate(trackedPolicy.lastCheckedAt)
                     : 'Never'}
                 </span>
+                {getTrackingStatusDescription(trackedPolicy) ? (
+                  <span className="watchlist-meta">
+                    {getTrackingStatusDescription(trackedPolicy)}
+                  </span>
+                ) : null}
               </div>
               <span
                 className={`chip watchlist-status-chip ${getTrackingStatusChipClassName(
@@ -125,8 +165,22 @@ export function TrackedPolicyWatchlistPanel({
               <button
                 type="button"
                 className="button-secondary"
+                onClick={() => void onCheckTrackedPolicy(trackedPolicy.id)}
+                disabled={
+                  checkingTrackedPolicyId === trackedPolicy.id ||
+                  removingTrackedPolicyId === trackedPolicy.id
+                }
+              >
+                {checkingTrackedPolicyId === trackedPolicy.id ? 'Checking...' : 'Check now'}
+              </button>
+              <button
+                type="button"
+                className="button-secondary"
                 onClick={() => void onRemoveTrackedPolicy(trackedPolicy.id)}
-                disabled={removingTrackedPolicyId === trackedPolicy.id}
+                disabled={
+                  removingTrackedPolicyId === trackedPolicy.id ||
+                  checkingTrackedPolicyId === trackedPolicy.id
+                }
               >
                 {removingTrackedPolicyId === trackedPolicy.id ? 'Removing...' : 'Remove'}
               </button>
@@ -134,6 +188,11 @@ export function TrackedPolicyWatchlistPanel({
           </li>
         ))}
       </ul>
+
+      <p className="field-help">
+        New watchlist entries begin at 1 stored version because enrollment saves the verified
+        baseline as the first tracked capture.
+      </p>
     </section>
   );
 }

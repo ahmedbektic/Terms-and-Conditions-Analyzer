@@ -5,7 +5,7 @@
  * Auth/token sourcing should stay outside this module.
  */
 
-import { type ReactNode, useEffect, useMemo } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo } from 'react';
 
 import type { DashboardApiClient } from '../../lib/api/client';
 import { createDashboardApiClient } from '../../lib/api/createDashboardApiClient';
@@ -50,22 +50,37 @@ export function DashboardPage({
     trackedPolicies,
     isLoadingTrackedPolicies,
     isCreatingTrackedPolicy,
+    checkingTrackedPolicyId,
     removingTrackedPolicyId,
     errorMessage: trackedPolicyErrorMessage,
     successMessage: trackedPolicySuccessMessage,
     loadTrackedPolicies,
     createTrackedPolicy,
+    checkTrackedPolicy,
     removeTrackedPolicy,
     clearMessages: clearTrackedPolicyMessages,
   } = useTrackedPolicies(effectiveApiClient);
 
-  useEffect(() => {
-    void loadReportHistory();
-  }, [loadReportHistory]);
+  const loadDashboardData = useCallback(async () => {
+    await Promise.allSettled([loadReportHistory(), loadTrackedPolicies()]);
+  }, [loadReportHistory, loadTrackedPolicies]);
 
   useEffect(() => {
-    void loadTrackedPolicies();
-  }, [loadTrackedPolicies]);
+    void loadDashboardData();
+  }, [loadDashboardData]);
+
+  const handleCreateTrackedPolicy = useCallback(
+    async (sourceUrl: string) => {
+      const enrollmentResult = await createTrackedPolicy(sourceUrl);
+      if (!enrollmentResult) {
+        return;
+      }
+
+      await loadReportHistory();
+      await selectReport(enrollmentResult.baselineReportId);
+    },
+    [createTrackedPolicy, loadReportHistory, selectReport],
+  );
 
   return (
     <main className="dashboard">
@@ -139,8 +154,10 @@ export function DashboardPage({
             trackedPolicies={trackedPolicies}
             isLoadingTrackedPolicies={isLoadingTrackedPolicies}
             isCreatingTrackedPolicy={isCreatingTrackedPolicy}
+            checkingTrackedPolicyId={checkingTrackedPolicyId}
             removingTrackedPolicyId={removingTrackedPolicyId}
-            onCreateTrackedPolicy={createTrackedPolicy}
+            onCreateTrackedPolicy={handleCreateTrackedPolicy}
+            onCheckTrackedPolicy={checkTrackedPolicy}
             onRemoveTrackedPolicy={removeTrackedPolicy}
           />
           <ReportHistoryList

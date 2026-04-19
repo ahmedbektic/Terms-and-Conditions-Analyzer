@@ -5,12 +5,14 @@
 import type {
   ReportListItemResponse,
   ReportResponse,
+  TrackedPolicyCreateResponse,
   TrackedPolicyResponse,
 } from '../../lib/api/contracts';
 import type {
   DashboardFlaggedClause,
   DashboardReport,
   DashboardReportListItem,
+  DashboardTrackedPolicyEnrollmentResult,
   DashboardTrackedPolicy,
 } from './types';
 
@@ -64,5 +66,15 @@ export function mapTrackedPolicy(response: TrackedPolicyResponse): DashboardTrac
     lastCheckedAt: response.last_checked_at,
     createdAt: response.created_at,
     snapshotVersionCount: response.snapshot_version_count,
+  };
+}
+
+export function mapTrackedPolicyEnrollmentResult(
+  response: TrackedPolicyCreateResponse,
+): DashboardTrackedPolicyEnrollmentResult {
+  return {
+    trackedPolicy: mapTrackedPolicy(response),
+    baselineReportId: response.baseline_report_id,
+    baselineReportAction: response.baseline_report_action,
   };
 }

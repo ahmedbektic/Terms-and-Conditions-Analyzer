@@ -167,6 +167,20 @@ class AnalysisOrchestrationService:
             subject_id=subject.subject_id,
         )
 
+    def find_latest_eligible_baseline_report(
+        self,
+        *,
+        subject: RequestSubject,
+        canonical_source_url: str,
+    ) -> StoredReport | None:
+        """Return the newest reusable fetched-url baseline report for a policy URL."""
+
+        return self._report_repository.get_latest_eligible_baseline_report_for_subject(
+            canonical_source_url=canonical_source_url,
+            subject_type=subject.subject_type,
+            subject_id=subject.subject_id,
+        )
+
     def get_report(self, *, subject: RequestSubject, report_id: UUID) -> StoredReport:
         """Return a single report owned by the request subject."""
 
@@ -178,6 +192,50 @@ class AnalysisOrchestrationService:
         if report is None:
             raise ReportNotFoundError(f"Report {report_id} was not found.")
         return report
+
+    def create_report_from_verified_url_capture(
+        self,
+        *,
+        subject: RequestSubject,
+        canonical_source_url: str,
+        display_name: str | None,
+        captured_text: str,
+    ) -> StoredReport:
+        """Persist and analyze a server-fetched URL capture as a saved baseline report."""
+
+        ingestion_result = (
+            self._submission_preparation_service.prepare_verified_url_capture_for_analysis(
+                canonical_source_url=canonical_source_url,
+                display_name=display_name,
+                captured_text=captured_text,
+            )
+        )
+        agreement = self._agreement_repository.create(
+            subject_type=subject.subject_type,
+            subject_id=subject.subject_id,
+            title=ingestion_result.title,
+            source_url=ingestion_result.source_url,
+            agreed_at=ingestion_result.agreed_at,
+            terms_text=ingestion_result.normalized_text,
+        )
+        return self._execute_analysis_and_persist_report(
+            subject=subject,
+            agreement=agreement,
+            ingestion_result=ingestion_result,
+        )
+
+    def get_report_terms_text(self, *, subject: RequestSubject, report_id: UUID) -> str:
+        """Return the persisted agreement text backing one saved report."""
+
+        report = self.get_report(subject=subject, report_id=report_id)
+        agreement = self._agreement_repository.get_for_subject(
+            agreement_id=report.agreement_id,
+            subject_type=subject.subject_type,
+            subject_id=subject.subject_id,
+        )
+        if agreement is None:
+            raise AgreementNotFoundError(f"Agreement {report.agreement_id} was not found.")
+        return agreement.terms_text
 
     def _execute_analysis_and_persist_report(
         self,

@@ -5,12 +5,21 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from ..deps import get_request_subject, get_tracked_policy_service
-from ..mappers.tracked_policies import to_tracked_policy_response
-from ...schemas.tracked_policies import TrackedPolicyCreateRequest, TrackedPolicyResponse
+from ..mappers.tracked_policies import (
+    to_tracked_policy_create_response,
+    to_tracked_policy_response,
+)
+from ...schemas.tracked_policies import (
+    TrackedPolicyCreateRequest,
+    TrackedPolicyCreateResponse,
+    TrackedPolicyResponse,
+)
 from ...services.request_subject import RequestSubject
 from ...services.tracked_policy_service import (
     DuplicateTrackedPolicyError,
     InvalidTrackedPolicySourceError,
+    TrackedPolicyBaselineReportError,
+    TrackedPolicyCheckFailedError,
     TrackedPolicyNotFoundError,
     TrackedPolicyService,
 )
@@ -18,16 +27,16 @@ from ...services.tracked_policy_service import (
 router = APIRouter(prefix="/tracked-policies")
 
 
-@router.post("", response_model=TrackedPolicyResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TrackedPolicyCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_tracked_policy(
     payload: TrackedPolicyCreateRequest,
     subject: RequestSubject = Depends(get_request_subject),
     service: TrackedPolicyService = Depends(get_tracked_policy_service),
-) -> TrackedPolicyResponse:
-    """Register a verified tracked policy URL for the active request subject."""
+) -> TrackedPolicyCreateResponse:
+    """Register a verified policy URL after creating or reusing a saved baseline report."""
 
     try:
-        tracked_policy = service.create_tracked_policy(
+        enrollment_result = service.create_tracked_policy(
             subject=subject,
             source_url=payload.source_url,
         )
@@ -36,10 +45,15 @@ def create_tracked_policy(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(error),
         ) from error
+    except TrackedPolicyBaselineReportError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
     except DuplicateTrackedPolicyError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
-    return to_tracked_policy_response(tracked_policy)
+    return to_tracked_policy_create_response(enrollment_result)
 
 
 @router.get("", response_model=list[TrackedPolicyResponse])
@@ -66,6 +80,11 @@ def check_tracked_policy(
             subject=subject,
             tracked_policy_id=tracked_policy_id,
         )
+    except TrackedPolicyCheckFailedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
     except TrackedPolicyNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 

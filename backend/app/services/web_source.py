@@ -27,10 +27,17 @@ DEFAULT_WEB_SOURCE_TIMEOUT_SECONDS = 8.0
 MIN_TRACKABLE_SOURCE_TEXT_LENGTH = 20
 
 _TITLE_PATTERN = re.compile(r"(?is)<title[^>]*>(.*?)</title>")
+_LOGIN_WALL_PATTERN = re.compile(
+    r"(?i)\b(sign in|log in|login|password|account required|access denied)\b"
+)
 
 
 class WebSourceInspectionError(Exception):
     """Raised when a public web source cannot be verified for tracking use."""
+
+    def __init__(self, public_message: str) -> None:
+        super().__init__(public_message)
+        self.public_message = public_message
 
 
 @dataclass(frozen=True)
@@ -50,6 +57,17 @@ class InspectedWebSource:
     display_name: str
     source_type: str
     last_checked_at: datetime
+
+
+@dataclass(frozen=True)
+class CapturedWebSource:
+    """Verified public web source plus the readable policy text captured from it."""
+
+    canonical_url: str
+    display_name: str
+    source_type: str
+    checked_at: datetime
+    captured_text: str
 
 
 class UrlContentFetcher(Protocol):
@@ -184,6 +202,17 @@ class PublicWebSourceInspector:
     def inspect_url(self, *, source_url: str) -> InspectedWebSource:
         """Canonicalize, fetch, and verify a source URL for watchlist registration."""
 
+        captured_source = self.capture_trackable_source(source_url=source_url)
+        return InspectedWebSource(
+            canonical_url=captured_source.canonical_url,
+            display_name=captured_source.display_name,
+            source_type=captured_source.source_type,
+            last_checked_at=captured_source.checked_at,
+        )
+
+    def capture_trackable_source(self, *, source_url: str) -> CapturedWebSource:
+        """Canonicalize, verify, and capture readable policy text in one pass."""
+
         canonical_url = canonicalize_public_source_url(source_url)
         payload, extracted_text = self._fetch_extract_and_validate(canonical_url=canonical_url)
         display_name = self._derive_display_name(
@@ -191,11 +220,12 @@ class PublicWebSourceInspector:
             body_text=payload.body_text,
             content_type=payload.content_type,
         )
-        return InspectedWebSource(
+        return CapturedWebSource(
             canonical_url=canonical_url,
             display_name=display_name,
             source_type="url",
-            last_checked_at=datetime.now(timezone.utc),
+            checked_at=datetime.now(timezone.utc),
+            captured_text=extracted_text,
         )
 
     def capture_policy_text(self, *, canonical_url: str) -> str:
@@ -205,31 +235,37 @@ class PublicWebSourceInspector:
         for snapshot storage (same rules as watchlist registration).
         """
 
-        url = canonicalize_public_source_url(canonical_url)
-        _, extracted_text = self._fetch_extract_and_validate(canonical_url=url)
-        return extracted_text
+        return self.capture_trackable_source(source_url=canonical_url).captured_text
 
     def _fetch_extract_and_validate(self, *, canonical_url: str) -> tuple[UrlFetchPayload, str]:
         try:
             payload = self._url_content_fetcher.fetch(url=canonical_url)
         except (httpx.HTTPError, ValueError) as error:
-            raise WebSourceInspectionError(
-                "We couldn't reach that policy page. Check the URL and try again."
-            ) from error
+            raise WebSourceInspectionError(_build_fetch_error_message(error)) from error
 
         extracted_text, _ = self._fetched_content_extractor.extract(
             body_text=payload.body_text,
             content_type=payload.content_type,
         )
+        normalized_content_type = payload.content_type.lower()
+        if "pdf" in normalized_content_type:
+            raise WebSourceInspectionError(
+                "That URL points to a PDF download. Use the service's public web page for the policy instead."
+            )
         if not self._is_readable_source(
             extracted_text=extracted_text,
             body_text=payload.body_text,
             content_type=payload.content_type,
         ):
-            raise WebSourceInspectionError("That URL does not appear to be a readable policy page.")
+            raise WebSourceInspectionError(
+                _build_unreadable_source_message(
+                    extracted_text=extracted_text,
+                    body_text=payload.body_text,
+                )
+            )
         if len(extracted_text) < MIN_TRACKABLE_SOURCE_TEXT_LENGTH:
             raise WebSourceInspectionError(
-                "That page did not contain enough readable policy text to track."
+                "That page did not contain enough readable policy text to track. Use the service's full terms, privacy, or legal page instead."
             )
         return payload, extracted_text
 
@@ -279,3 +315,61 @@ def _build_netloc(*, hostname: str, port: int | None) -> str:
     if port is None:
         return normalized_hostname
     return f"{normalized_hostname}:{port}"
+
+
+def _build_fetch_error_message(error: Exception) -> str:
+    """Map low-level fetch failures into actionable watchlist messages."""
+
+    if isinstance(error, httpx.TimeoutException):
+        return (
+            "That policy page took too long to respond. Open it in your browser and try again in a moment."
+        )
+
+    if isinstance(error, httpx.TooManyRedirects):
+        return (
+            "That policy page kept redirecting. Use the service's final public terms or privacy URL instead."
+        )
+
+    if isinstance(error, httpx.HTTPStatusError):
+        status_code = error.response.status_code
+        if status_code == 404:
+            return (
+                "That policy page returned 404 Not Found. Check that the link is current or use the service's public legal page."
+            )
+        if status_code in {401, 403}:
+            return (
+                "That policy page is blocking access. Use a public terms or privacy page that does not require sign-in."
+            )
+        if status_code == 429:
+            return (
+                "That policy page is rate limiting requests right now. Try again in a moment."
+            )
+        if status_code >= 500:
+            return (
+                "That policy page is temporarily unavailable right now. Try again in a moment."
+            )
+        return (
+            f"That policy page returned HTTP {status_code}. Check the link or use the service's public terms or privacy page."
+        )
+
+    if isinstance(error, httpx.ConnectError):
+        return (
+            "We couldn't connect to that policy page. Check the URL and make sure the site is reachable."
+        )
+
+    return "We couldn't reach that policy page. Check the URL and try again."
+
+
+def _build_unreadable_source_message(*, extracted_text: str, body_text: str) -> str:
+    normalized_body_text = normalize_untrusted_text(body_text)
+    if _LOGIN_WALL_PATTERN.search(normalized_body_text):
+        return (
+            "That page appears to require sign-in or special access. Use a public terms or privacy page that anyone can open."
+        )
+    if not extracted_text.strip():
+        return (
+            "That page did not expose readable policy text. Use the service's public terms, privacy, or legal page instead."
+        )
+    return (
+        "That URL does not look like a readable policy page. Use the service's public terms, privacy, or legal page instead."
+    )

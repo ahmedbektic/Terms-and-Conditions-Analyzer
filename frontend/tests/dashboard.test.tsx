@@ -7,6 +7,7 @@ import { MAX_TERMS_TEXT_LENGTH } from '../src/lib/security/inputValidation';
 import type {
   ReportListItemResponse,
   ReportResponse,
+  TrackedPolicyCreateResponse,
   TrackedPolicyResponse,
 } from '../src/lib/api/contracts';
 
@@ -64,10 +65,21 @@ function buildTrackedPolicy(overrides?: Partial<TrackedPolicyResponse>): Tracked
     canonical_url: 'https://example.com/legal/terms',
     display_name: 'Example Terms',
     source_type: 'url',
-    tracking_status: 'pending_first_snapshot',
+    tracking_status: 'active',
     last_checked_at: '2026-03-24T15:30:00Z',
     created_at: '2026-03-24T15:30:00Z',
-    snapshot_version_count: 0,
+    snapshot_version_count: 1,
+    ...overrides,
+  };
+}
+
+function buildTrackedPolicyCreateResponse(
+  overrides?: Partial<TrackedPolicyCreateResponse>,
+): TrackedPolicyCreateResponse {
+  return {
+    ...buildTrackedPolicy(),
+    baseline_report_id: '00000000-0000-4000-8000-000000000001',
+    baseline_report_action: 'created',
     ...overrides,
   };
 }
@@ -297,14 +309,36 @@ describe('DashboardPage', () => {
   });
 
   it('loads the watchlist and lets the user add a tracked policy', async () => {
+    const baselineReport = buildReport({
+      source_value: 'https://example.com/legal/terms',
+      raw_input_excerpt: 'These terms include arbitration and automatic renewal clauses.',
+    });
     const createdTrackedPolicy = buildTrackedPolicy();
+    const createdTrackedPolicyResponse = buildTrackedPolicyCreateResponse({
+      ...createdTrackedPolicy,
+      baseline_report_id: baselineReport.id,
+      baseline_report_action: 'created',
+    });
+    const baselineReportListItem = buildListItem({
+      id: baselineReport.id,
+      source_value: baselineReport.source_value,
+      trust_score: baselineReport.trust_score,
+    });
+    let reportListCalls = 0;
     let trackedPolicyListCalls = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
 
       if (url.endsWith('/reports') && method === 'GET') {
-        return jsonResponse([]);
+        reportListCalls += 1;
+        if (reportListCalls === 1) {
+          return jsonResponse([]);
+        }
+        return jsonResponse([baselineReportListItem]);
+      }
+      if (url.endsWith(`/reports/${baselineReport.id}`) && method === 'GET') {
+        return jsonResponse(baselineReport);
       }
       if (url.endsWith('/tracked-policies') && method === 'GET') {
         trackedPolicyListCalls += 1;
@@ -314,7 +348,7 @@ describe('DashboardPage', () => {
         return jsonResponse([createdTrackedPolicy]);
       }
       if (url.endsWith('/tracked-policies') && method === 'POST') {
-        return jsonResponse(createdTrackedPolicy, 201);
+        return jsonResponse(createdTrackedPolicyResponse, 201);
       }
       throw new Error(`Unexpected request: ${method} ${url}`);
     });
@@ -333,11 +367,98 @@ describe('DashboardPage', () => {
     await user.click(screen.getByRole('button', { name: 'Add to watchlist' }));
 
     await waitFor(() =>
-      expect(screen.getByText('Example Terms has been added to your watchlist.')).toBeTruthy(),
+      expect(
+        screen.getByText(
+          'Example Terms was analyzed, saved as a baseline report, and added to your watchlist with its first stored version.',
+        ),
+      ).toBeTruthy(),
     );
     expect(screen.getByText('Example Terms')).toBeTruthy();
-    expect(screen.getByText('https://example.com/legal/terms')).toBeTruthy();
-    expect(screen.getByText(/pending first snapshot/i)).toBeTruthy();
+    expect(screen.getAllByText('https://example.com/legal/terms').length).toBeGreaterThan(0);
+    expect(screen.getByText(/active/i)).toBeTruthy();
+    expect(screen.getByText(/1 stored version - last checked/i)).toBeTruthy();
+    expect(
+      screen.getByText(
+        'New watchlist entries begin at 1 stored version because enrollment saves the verified baseline as the first tracked capture.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('Trust score: 54 / 100')).toBeTruthy();
+    expect(screen.getByText('Detected arbitration and auto-renewal concerns.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Check now' })).toBeTruthy();
+  });
+
+  it('reuses an existing baseline report when adding a tracked policy to the watchlist', async () => {
+    const existingBaselineReport = buildReport({
+      id: '00000000-0000-4000-8000-000000000004',
+      agreement_id: '10000000-0000-4000-8000-000000000004',
+      source_value: 'https://example.com/legal/terms',
+      summary: 'Existing baseline summary',
+      trust_score: 61,
+    });
+    const existingBaselineListItem = buildListItem({
+      id: existingBaselineReport.id,
+      agreement_id: existingBaselineReport.agreement_id,
+      source_value: existingBaselineReport.source_value,
+      trust_score: existingBaselineReport.trust_score,
+    });
+    const createdTrackedPolicy = buildTrackedPolicy({
+      id: '20000000-0000-4000-8000-000000000004',
+      canonical_url: 'https://example.com/legal/terms',
+      display_name: 'Example Terms',
+    });
+    const createResponse = buildTrackedPolicyCreateResponse({
+      ...createdTrackedPolicy,
+      baseline_report_id: existingBaselineReport.id,
+      baseline_report_action: 'reused',
+    });
+    let trackedPolicyListCalls = 0;
+    let reportListCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        reportListCalls += 1;
+        return jsonResponse([existingBaselineListItem]);
+      }
+      if (url.endsWith(`/reports/${existingBaselineReport.id}`) && method === 'GET') {
+        return jsonResponse(existingBaselineReport);
+      }
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        trackedPolicyListCalls += 1;
+        if (trackedPolicyListCalls === 1) {
+          return jsonResponse([]);
+        }
+        return jsonResponse([createdTrackedPolicy]);
+      }
+      if (url.endsWith('/tracked-policies') && method === 'POST') {
+        return jsonResponse(createResponse, 201);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('No tracked policies yet. Add a policy URL to start monitoring changes.'),
+      ).toBeTruthy(),
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Policy URL'), 'https://example.com/legal/terms');
+    await user.click(screen.getByRole('button', { name: 'Add to watchlist' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'Example Terms reused an existing saved baseline report and was added to your watchlist with its first stored version.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText('Existing baseline summary')).toBeTruthy();
+    expect(reportListCalls).toBe(2);
   });
 
   it('shows an error when adding an invalid tracked-policy URL', async () => {
@@ -371,6 +492,122 @@ describe('DashboardPage', () => {
       expect(screen.getByText('Source URL must target a public hostname.')).toBeTruthy(),
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows an actionable backend error when the policy URL returns a missing page', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        return jsonResponse([]);
+      }
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        return jsonResponse([]);
+      }
+      if (url.endsWith('/tracked-policies') && method === 'POST') {
+        return jsonResponse(
+          {
+            detail:
+              "That policy page returned 404 Not Found. Check that the link is current or use the service's public legal page.",
+          },
+          422,
+        );
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('No tracked policies yet. Add a policy URL to start monitoring changes.'),
+      ).toBeTruthy(),
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Policy URL'), 'https://example.com/missing-terms');
+    await user.click(screen.getByRole('button', { name: 'Add to watchlist' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "That policy page returned 404 Not Found. Check that the link is current or use the service's public legal page.",
+        ),
+      ).toBeTruthy(),
+    );
+  });
+
+  it('surfaces actionable check failures and refreshes the row to invalid source', async () => {
+    const initialTrackedPolicy = buildTrackedPolicy({
+      id: '20000000-0000-4000-8000-000000000003',
+      canonical_url: 'https://example.com/legal/terms',
+      display_name: 'Example Terms',
+      tracking_status: 'active',
+      snapshot_version_count: 1,
+    });
+    const failedTrackedPolicy = buildTrackedPolicy({
+      id: '20000000-0000-4000-8000-000000000003',
+      canonical_url: 'https://example.com/legal/terms',
+      display_name: 'Example Terms',
+      tracking_status: 'invalid_source',
+      snapshot_version_count: 1,
+    });
+    let reportListCalls = 0;
+    let trackedPolicyListCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        reportListCalls += 1;
+        return jsonResponse([]);
+      }
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        trackedPolicyListCalls += 1;
+        if (trackedPolicyListCalls === 1) {
+          return jsonResponse([initialTrackedPolicy]);
+        }
+        return jsonResponse([failedTrackedPolicy]);
+      }
+      if (
+        url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000003/check') &&
+        method === 'POST'
+      ) {
+        return jsonResponse(
+          {
+            detail:
+              'That policy page is blocking access. Use a public terms or privacy page that does not require sign-in.',
+          },
+          422,
+        );
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(screen.getByText('Example Terms')).toBeTruthy());
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Check now' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'That policy page is blocking access. Use a public terms or privacy page that does not require sign-in.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText(/invalid source/i)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "The latest check could not read this page. Use the service's public terms, privacy, or legal page if the link changed.",
+      ),
+    ).toBeTruthy();
+    expect(reportListCalls).toBe(1);
   });
 
   it('lets the user remove a tracked policy from the watchlist', async () => {

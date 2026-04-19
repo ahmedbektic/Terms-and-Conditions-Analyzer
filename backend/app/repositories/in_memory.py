@@ -11,6 +11,10 @@ from uuid import UUID, uuid4
 from .analysis_status import AnalysisLifecycleStatus, normalize_analysis_lifecycle_status
 from .models import StoredAgreement, StoredFlaggedClause, StoredReport, StoredTrackedPolicy
 from .policy_tracking_status import PolicyTrackingStatus, normalize_policy_tracking_status
+from .report_capture_kind import (
+    ReportContentCaptureKind,
+    normalize_report_content_capture_kind,
+)
 
 
 class InMemoryStorage:
@@ -94,8 +98,13 @@ class InMemoryReportRepository:
         model_name: str,
         flagged_clauses: list[StoredFlaggedClause],
         completed_at: datetime | None,
+        canonical_source_url: str | None = None,
+        content_capture_kind: ReportContentCaptureKind | str = (
+            ReportContentCaptureKind.LEGACY_UNKNOWN
+        ),
     ) -> StoredReport:
         normalized_status = normalize_analysis_lifecycle_status(status)
+        normalized_capture_kind = normalize_report_content_capture_kind(content_capture_kind)
         report = StoredReport(
             id=uuid4(),
             agreement_id=agreement_id,
@@ -111,6 +120,8 @@ class InMemoryReportRepository:
             flagged_clauses=flagged_clauses,
             created_at=datetime.now(timezone.utc),
             completed_at=completed_at,
+            canonical_source_url=canonical_source_url,
+            content_capture_kind=normalized_capture_kind,
         )
         self._storage.reports[report.id] = report
         return report
@@ -136,6 +147,25 @@ class InMemoryReportRepository:
         if report.subject_type != subject_type or report.subject_id != subject_id:
             return None
         return report
+
+    def get_latest_eligible_baseline_report_for_subject(
+        self,
+        *,
+        canonical_source_url: str,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredReport | None:
+        eligible_reports = [
+            report
+            for report in self._storage.reports.values()
+            if report.subject_type == subject_type
+            and report.subject_id == subject_id
+            and report.canonical_source_url == canonical_source_url
+            and report.content_capture_kind == ReportContentCaptureKind.FETCHED_URL
+        ]
+        if not eligible_reports:
+            return None
+        return sorted(eligible_reports, key=lambda report: report.created_at, reverse=True)[0]
 
 
 class InMemoryTrackedPolicyRepository:

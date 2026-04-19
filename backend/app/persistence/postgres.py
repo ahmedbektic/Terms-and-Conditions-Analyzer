@@ -30,6 +30,10 @@ from ..repositories.policy_tracking_status import (
     PolicyTrackingStatus,
     normalize_policy_tracking_status,
 )
+from ..repositories.report_capture_kind import (
+    ReportContentCaptureKind,
+    normalize_report_content_capture_kind,
+)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS agreements (
@@ -61,12 +65,29 @@ CREATE TABLE IF NOT EXISTS reports (
   trust_score INTEGER NOT NULL CHECK (trust_score >= 0 AND trust_score <= 100),
   model_name TEXT NOT NULL,
   flagged_clauses JSONB NOT NULL,
+  canonical_source_url TEXT NULL,
+  content_capture_kind TEXT NOT NULL DEFAULT 'legacy_unknown',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   completed_at TIMESTAMPTZ NULL
 );
 
+ALTER TABLE reports
+  ADD COLUMN IF NOT EXISTS canonical_source_url TEXT NULL;
+
+ALTER TABLE reports
+  ADD COLUMN IF NOT EXISTS content_capture_kind TEXT NOT NULL DEFAULT 'legacy_unknown';
+
 CREATE INDEX IF NOT EXISTS idx_reports_owner_created
   ON reports (subject_type, subject_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_reports_owner_canonical_capture_created
+  ON reports (
+    subject_type,
+    subject_id,
+    canonical_source_url,
+    content_capture_kind,
+    created_at DESC
+  );
 
 CREATE TABLE IF NOT EXISTS tracked_policies (
   id UUID PRIMARY KEY,
@@ -254,9 +275,14 @@ class PostgresReportRepository:
         model_name: str,
         flagged_clauses: list[StoredFlaggedClause],
         completed_at: datetime | None,
+        canonical_source_url: str | None = None,
+        content_capture_kind: ReportContentCaptureKind | str = (
+            ReportContentCaptureKind.LEGACY_UNKNOWN
+        ),
     ) -> StoredReport:
         report_id = uuid4()
         normalized_status = normalize_analysis_lifecycle_status(status)
+        normalized_capture_kind = normalize_report_content_capture_kind(content_capture_kind)
         flagged_clause_payload = [
             {
                 "clause_type": clause.clause_type,
@@ -273,12 +299,13 @@ class PostgresReportRepository:
                     """
                     INSERT INTO reports (
                       id, agreement_id, subject_type, subject_id, source_type, source_value,
-                      raw_input_excerpt, status, summary, trust_score, model_name, flagged_clauses, completed_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                      raw_input_excerpt, status, summary, trust_score, model_name, flagged_clauses,
+                      canonical_source_url, content_capture_kind, completed_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s)
                     RETURNING
                       id, agreement_id, subject_type, subject_id, source_type, source_value,
                       raw_input_excerpt, status, summary, trust_score, model_name,
-                      flagged_clauses, created_at, completed_at;
+                      flagged_clauses, canonical_source_url, content_capture_kind, created_at, completed_at;
                     """,
                     (
                         report_id,
@@ -293,6 +320,8 @@ class PostgresReportRepository:
                         trust_score,
                         model_name,
                         json.dumps(flagged_clause_payload),
+                        canonical_source_url,
+                        normalized_capture_kind.value,
                         completed_at,
                     ),
                 )
@@ -308,7 +337,7 @@ class PostgresReportRepository:
                     SELECT
                       id, agreement_id, subject_type, subject_id, source_type, source_value,
                       raw_input_excerpt, status, summary, trust_score, model_name,
-                      flagged_clauses, created_at, completed_at
+                      flagged_clauses, canonical_source_url, content_capture_kind, created_at, completed_at
                     FROM reports
                     WHERE subject_type = %s AND subject_id = %s
                     ORDER BY created_at DESC;
@@ -332,11 +361,44 @@ class PostgresReportRepository:
                     SELECT
                       id, agreement_id, subject_type, subject_id, source_type, source_value,
                       raw_input_excerpt, status, summary, trust_score, model_name,
-                      flagged_clauses, created_at, completed_at
+                      flagged_clauses, canonical_source_url, content_capture_kind, created_at, completed_at
                     FROM reports
                     WHERE id = %s AND subject_type = %s AND subject_id = %s;
                     """,
                     (report_id, subject_type, subject_id),
+                )
+                row = cursor.fetchone()
+        return _report_from_row(row) if row else None
+
+    def get_latest_eligible_baseline_report_for_subject(
+        self,
+        *,
+        canonical_source_url: str,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredReport | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      id, agreement_id, subject_type, subject_id, source_type, source_value,
+                      raw_input_excerpt, status, summary, trust_score, model_name,
+                      flagged_clauses, canonical_source_url, content_capture_kind, created_at, completed_at
+                    FROM reports
+                    WHERE subject_type = %s
+                      AND subject_id = %s
+                      AND canonical_source_url = %s
+                      AND content_capture_kind = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1;
+                    """,
+                    (
+                        subject_type,
+                        subject_id,
+                        canonical_source_url,
+                        ReportContentCaptureKind.FETCHED_URL.value,
+                    ),
                 )
                 row = cursor.fetchone()
         return _report_from_row(row) if row else None
@@ -645,6 +707,10 @@ def _report_from_row(row: dict | None) -> StoredReport:
         flagged_clauses=flagged_clauses,
         created_at=row["created_at"],
         completed_at=row["completed_at"],
+        canonical_source_url=row.get("canonical_source_url"),
+        content_capture_kind=normalize_report_content_capture_kind(
+            row.get("content_capture_kind", ReportContentCaptureKind.LEGACY_UNKNOWN.value)
+        ),
     )
 
 

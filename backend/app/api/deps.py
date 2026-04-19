@@ -143,6 +143,7 @@ _analysis_service = AnalysisOrchestrationService(
 )
 _tracked_policy_service = TrackedPolicyService(
     tracked_policy_repository=_tracked_policy_repository,
+    analysis_service=_analysis_service,
     public_web_source_inspector=_public_web_source_inspector,
 )
 

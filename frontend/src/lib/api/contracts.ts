@@ -33,6 +33,11 @@ export interface TrackedPolicyResponse {
   snapshot_version_count: number;
 }
 
+export interface TrackedPolicyCreateResponse extends TrackedPolicyResponse {
+  baseline_report_id: string;
+  baseline_report_action: 'created' | 'reused';
+}
+
 export interface AnalysisTriggerRequest {
   trigger: 'manual';
 }

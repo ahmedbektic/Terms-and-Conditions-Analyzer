@@ -19,6 +19,7 @@ from app.services.ai_provider import (
     DeterministicAnalysisProvider,
     build_analysis_provider,
 )
+from app.repositories.report_capture_kind import ReportContentCaptureKind
 from app.services.analysis_execution import SyncAnalysisExecutionStrategy
 from app.services.analysis_service import AnalysisOrchestrationService
 from app.services.content_ingestion import ContentIngestionService, UrlFetchPayload
@@ -75,6 +76,11 @@ class _StaticUrlFetcher:
         return self._payload
 
 
+class _FailingUrlFetcher:
+    def fetch(self, *, url: str) -> UrlFetchPayload:
+        raise ValueError(f"failed to fetch {url}")
+
+
 def _build_analysis_service_for_test(
     *,
     content_ingestion_service: ContentIngestionService | None = None,
@@ -94,6 +100,31 @@ def _build_analysis_service_for_test(
         submission_preparation_service=SubmissionPreparationService(
             content_ingestion_service=content_ingestion_service or ContentIngestionService()
         ),
+    )
+
+
+def _build_analysis_service_bundle_for_test(
+    *,
+    content_ingestion_service: ContentIngestionService | None = None,
+    analysis_provider: AnalysisProvider | None = None,
+) -> tuple[AnalysisOrchestrationService, InMemoryReportRepository]:
+    storage = InMemoryStorage()
+    agreement_repository = InMemoryAgreementRepository(storage)
+    report_repository = InMemoryReportRepository(storage)
+
+    return (
+        AnalysisOrchestrationService(
+            agreement_repository=agreement_repository,
+            report_repository=report_repository,
+            analysis_execution_strategy=SyncAnalysisExecutionStrategy(
+                analysis_provider=analysis_provider or DeterministicAnalysisProvider(),
+                report_repository=report_repository,
+            ),
+            submission_preparation_service=SubmissionPreparationService(
+                content_ingestion_service=content_ingestion_service or ContentIngestionService()
+            ),
+        ),
+        report_repository,
     )
 
 
@@ -316,6 +347,69 @@ def test_submit_analyze_url_only_uses_ingestion_fetch_path_when_available(
     _assert_report_response_contract(report)
     assert report["source_type"] == "url"
     assert "could not be fetched" not in report["raw_input_excerpt"].lower()
+
+
+def test_submit_analyze_url_only_persists_fetched_url_provenance(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reset_demo_storage()
+    test_service, report_repository = _build_analysis_service_bundle_for_test(
+        content_ingestion_service=ContentIngestionService(
+            url_content_fetcher=_StaticUrlFetcher(
+                UrlFetchPayload(
+                    body_text=(
+                        "<html><body><h1>Terms</h1>"
+                        "<p>These terms include arbitration and automatic renewal clauses."
+                        "</p></body></html>"
+                    ),
+                    content_type="text/html",
+                )
+            )
+        )
+    )
+    monkeypatch.setattr(deps, "_analysis_service", test_service)
+    owner_headers = _auth_headers("user-a")
+
+    response = client.post(
+        "/api/v1/reports/analyze",
+        json={"source_url": "https://Example.com:443/terms?b=2&a=1#frag"},
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 201
+    stored_reports = report_repository.list_for_subject(
+        subject_type="supabase_user",
+        subject_id="user-a",
+    )
+    assert len(stored_reports) == 1
+    assert stored_reports[0].content_capture_kind == ReportContentCaptureKind.FETCHED_URL
+    assert stored_reports[0].canonical_source_url == "https://example.com/terms?a=1&b=2"
+
+
+def test_submit_analyze_url_only_persists_fallback_placeholder_provenance(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reset_demo_storage()
+    test_service, report_repository = _build_analysis_service_bundle_for_test(
+        content_ingestion_service=ContentIngestionService(url_content_fetcher=_FailingUrlFetcher())
+    )
+    monkeypatch.setattr(deps, "_analysis_service", test_service)
+    owner_headers = _auth_headers("user-a")
+
+    response = client.post(
+        "/api/v1/reports/analyze",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 201
+    stored_reports = report_repository.list_for_subject(
+        subject_type="supabase_user",
+        subject_id="user-a",
+    )
+    assert len(stored_reports) == 1
+    assert stored_reports[0].content_capture_kind == ReportContentCaptureKind.FALLBACK_PLACEHOLDER
+    assert stored_reports[0].canonical_source_url == "https://example.com/terms"
 
 
 def test_submit_analyze_sanitizes_html_like_text_input(client: TestClient) -> None:

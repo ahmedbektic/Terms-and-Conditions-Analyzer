@@ -11,6 +11,7 @@ from uuid import UUID
 
 from .analysis_status import AnalysisLifecycleStatus
 from .policy_tracking_status import PolicyTrackingStatus
+from .report_capture_kind import ReportContentCaptureKind
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,8 @@ class StoredReport:
     flagged_clauses: list[StoredFlaggedClause]
     created_at: datetime
     completed_at: datetime | None
+    canonical_source_url: str | None = None
+    content_capture_kind: ReportContentCaptureKind = ReportContentCaptureKind.LEGACY_UNKNOWN
 
 
 @dataclass(frozen=True)
