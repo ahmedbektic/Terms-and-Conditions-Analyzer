@@ -3,6 +3,7 @@
   "name": "cloud-terms-and-conditions-analyzer",
   "main": "./worker/index.ts",
   "compatibility_date": "2025-09-27",
+  "keep_vars": true,
   "observability": {
     "enabled": true
   },
