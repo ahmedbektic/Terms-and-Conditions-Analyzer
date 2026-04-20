@@ -21,6 +21,7 @@ from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
+
 try:
     from bs4 import BeautifulSoup
 except ImportError:  # pragma: no cover - exercised only before dependencies are installed
@@ -169,12 +170,8 @@ class HttpxUrlContentFetcher:
 class SimpleFetchedContentExtractor:
     """Lightweight fetched-content extractor for readable web pages."""
 
-    def __init__(
-        self, *, policy_text_canonicalizer: PolicyTextCanonicalizer | None = None
-    ) -> None:
-        self._policy_text_canonicalizer = (
-            policy_text_canonicalizer or PolicyTextCanonicalizer()
-        )
+    def __init__(self, *, policy_text_canonicalizer: PolicyTextCanonicalizer | None = None) -> None:
+        self._policy_text_canonicalizer = policy_text_canonicalizer or PolicyTextCanonicalizer()
 
     def extract(self, *, body_text: str, content_type: str) -> tuple[str, str]:
         normalized_content_type = content_type.lower()
@@ -344,13 +341,9 @@ class PublicWebSourceInspector:
         self._url_content_fetcher = url_content_fetcher or HttpxUrlContentFetcher()
         self._fetched_content_extractor = (
             fetched_content_extractor
-            or SimpleFetchedContentExtractor(
-                policy_text_canonicalizer=policy_text_canonicalizer
-            )
+            or SimpleFetchedContentExtractor(policy_text_canonicalizer=policy_text_canonicalizer)
         )
-        self._policy_text_canonicalizer = (
-            policy_text_canonicalizer or PolicyTextCanonicalizer()
-        )
+        self._policy_text_canonicalizer = policy_text_canonicalizer or PolicyTextCanonicalizer()
 
     def inspect_url(self, *, source_url: str) -> InspectedWebSource:
         """Canonicalize, fetch, and verify a source URL for watchlist registration."""

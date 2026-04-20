@@ -153,19 +153,21 @@ def test_policy_snapshot_service_creates_first_snapshot_for_legacy_policy_withou
 
 
 def test_policy_snapshot_service_keeps_version_count_stable_when_content_is_unchanged() -> None:
-    service, tracked_policy_repository, snapshot_repository, change_event_repository = _build_service(
-        inspector=PublicWebSourceInspector(
-            url_content_fetcher=_StaticUrlFetcher(
-                UrlFetchPayload(
-                    body_text=(
-                        "<html><body><main>These terms include arbitration and cancellation "
-                        "rights.</main></body></html>"
-                    ),
-                    content_type="text/html",
-                    final_url="https://example.com/terms",
-                    status_code=200,
-                    redirect_count=0,
-                    fetch_duration_ms=80,
+    service, tracked_policy_repository, snapshot_repository, change_event_repository = (
+        _build_service(
+            inspector=PublicWebSourceInspector(
+                url_content_fetcher=_StaticUrlFetcher(
+                    UrlFetchPayload(
+                        body_text=(
+                            "<html><body><main>These terms include arbitration and cancellation "
+                            "rights.</main></body></html>"
+                        ),
+                        content_type="text/html",
+                        final_url="https://example.com/terms",
+                        status_code=200,
+                        redirect_count=0,
+                        fetch_duration_ms=80,
+                    )
                 )
             )
         )
@@ -200,33 +202,35 @@ def test_policy_snapshot_service_keeps_version_count_stable_when_content_is_unch
 
 
 def test_policy_snapshot_service_creates_new_snapshot_when_content_changes() -> None:
-    service, tracked_policy_repository, snapshot_repository, change_event_repository = _build_service(
-        inspector=PublicWebSourceInspector(
-            url_content_fetcher=_SequenceUrlFetcher(
-                [
-                    UrlFetchPayload(
-                        body_text=(
-                            "<html><body>These terms include arbitration and cancellation "
-                            "rights.</body></html>"
+    service, tracked_policy_repository, snapshot_repository, change_event_repository = (
+        _build_service(
+            inspector=PublicWebSourceInspector(
+                url_content_fetcher=_SequenceUrlFetcher(
+                    [
+                        UrlFetchPayload(
+                            body_text=(
+                                "<html><body>These terms include arbitration and cancellation "
+                                "rights.</body></html>"
+                            ),
+                            content_type="text/html",
+                            final_url="https://example.com/terms",
+                            status_code=200,
+                            redirect_count=0,
+                            fetch_duration_ms=70,
                         ),
-                        content_type="text/html",
-                        final_url="https://example.com/terms",
-                        status_code=200,
-                        redirect_count=0,
-                        fetch_duration_ms=70,
-                    ),
-                    UrlFetchPayload(
-                        body_text=(
-                            "<html><body>These updated terms include arbitration, "
-                            "cancellation rights, and mandatory venue clauses.</body></html>"
+                        UrlFetchPayload(
+                            body_text=(
+                                "<html><body>These updated terms include arbitration, "
+                                "cancellation rights, and mandatory venue clauses.</body></html>"
+                            ),
+                            content_type="text/html",
+                            final_url="https://example.com/terms",
+                            status_code=200,
+                            redirect_count=0,
+                            fetch_duration_ms=74,
                         ),
-                        content_type="text/html",
-                        final_url="https://example.com/terms",
-                        status_code=200,
-                        redirect_count=0,
-                        fetch_duration_ms=74,
-                    ),
-                ]
+                    ]
+                )
             )
         )
     )
@@ -260,8 +264,8 @@ def test_policy_snapshot_service_creates_new_snapshot_when_content_changes() -> 
 
 
 def test_policy_snapshot_service_keeps_active_policy_on_transient_fetch_failure() -> None:
-    service, tracked_policy_repository, snapshot_repository, change_event_repository = _build_service(
-        inspector=PublicWebSourceInspector(url_content_fetcher=_TimeoutUrlFetcher())
+    service, tracked_policy_repository, snapshot_repository, change_event_repository = (
+        _build_service(inspector=PublicWebSourceInspector(url_content_fetcher=_TimeoutUrlFetcher()))
     )
     subject, tracked_policy = _create_tracked_policy(tracked_policy_repository)
     snapshot_repository.append_for_tracked_policy_if_changed(
@@ -303,16 +307,18 @@ def test_policy_snapshot_service_keeps_active_policy_on_transient_fetch_failure(
 
 
 def test_policy_snapshot_service_marks_policy_invalid_source_for_malformed_page() -> None:
-    service, tracked_policy_repository, snapshot_repository, change_event_repository = _build_service(
-        inspector=PublicWebSourceInspector(
-            url_content_fetcher=_StaticUrlFetcher(
-                UrlFetchPayload(
-                    body_text="<html><body></body></html>",
-                    content_type="text/html",
-                    final_url="https://example.com/terms",
-                    status_code=200,
-                    redirect_count=0,
-                    fetch_duration_ms=60,
+    service, tracked_policy_repository, snapshot_repository, change_event_repository = (
+        _build_service(
+            inspector=PublicWebSourceInspector(
+                url_content_fetcher=_StaticUrlFetcher(
+                    UrlFetchPayload(
+                        body_text="<html><body></body></html>",
+                        content_type="text/html",
+                        final_url="https://example.com/terms",
+                        status_code=200,
+                        redirect_count=0,
+                        fetch_duration_ms=60,
+                    )
                 )
             )
         )
@@ -445,7 +451,9 @@ def test_policy_snapshot_service_suppresses_trivial_punctuation_only_changes() -
     )
 
 
-def test_policy_snapshot_service_keeps_version_count_stable_for_legacy_scrape_noise_only_changes() -> None:
+def test_policy_snapshot_service_keeps_version_count_stable_for_legacy_scrape_noise_only_changes() -> (
+    None
+):
     repo_root = Path(__file__).resolve().parents[2]
     term1 = (repo_root / "term1.txt").read_text(encoding="utf-8")
     term2 = (repo_root / "term2.txt").read_text(encoding="utf-8")

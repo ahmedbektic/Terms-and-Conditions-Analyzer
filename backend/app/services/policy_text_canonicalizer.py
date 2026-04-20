@@ -8,7 +8,6 @@ import re
 from typing import Literal
 import unicodedata
 
-
 CURRENT_POLICY_TEXT_NORMALIZATION_VERSION = 2
 
 _CONTROL_CHARACTER_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -217,7 +216,11 @@ class PolicyTextCanonicalizer:
         first_legal_index = self._find_first_legal_index(lines)
 
         for index, line in enumerate(lines):
-            if saw_legal_candidate and self._looks_like_policy_title(line) and len(line.split()) <= 4:
+            if (
+                saw_legal_candidate
+                and self._looks_like_policy_title(line)
+                and len(line.split()) <= 4
+            ):
                 removed_line_count += 1
                 continue
 
@@ -244,7 +247,9 @@ class PolicyTextCanonicalizer:
 
     def _find_first_legal_index(self, lines: list[str]) -> int | None:
         for index, line in enumerate(lines):
-            if self._classify_line(line) == "legal_candidate" or self._looks_like_policy_title(line):
+            if self._classify_line(line) == "legal_candidate" or self._looks_like_policy_title(
+                line
+            ):
                 return index
         return None
 
@@ -264,7 +269,9 @@ class PolicyTextCanonicalizer:
             return "junk"
         if lowered_line.startswith("monday") and ("am" in lowered_line or "pm" in lowered_line):
             return "junk"
-        if len(_JUNK_HINT_PATTERN.findall(lowered_line)) >= 2 and not self._looks_like_policy_title(line):
+        if len(_JUNK_HINT_PATTERN.findall(lowered_line)) >= 2 and not self._looks_like_policy_title(
+            line
+        ):
             return "junk"
 
         if _LEGAL_HINT_PATTERN.search(lowered_line):

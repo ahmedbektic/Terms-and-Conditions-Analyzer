@@ -89,9 +89,7 @@ class TrackedPolicyVersionsService:
         self._tracked_policy_repository = tracked_policy_repository
         self._policy_snapshot_repository = policy_snapshot_repository
         self._policy_change_event_repository = policy_change_event_repository
-        self._policy_text_canonicalizer = (
-            policy_text_canonicalizer or PolicyTextCanonicalizer()
-        )
+        self._policy_text_canonicalizer = policy_text_canonicalizer or PolicyTextCanonicalizer()
 
     def list_snapshot_history(
         self, *, subject: RequestSubject, tracked_policy_id: UUID
@@ -130,8 +128,7 @@ class TrackedPolicyVersionsService:
         )
         snapshots_by_id = {snapshot.id: snapshot for snapshot in snapshots}
         versions_by_id = {
-            snapshot_version.snapshot_id: snapshot_version
-            for snapshot_version in snapshot_versions
+            snapshot_version.snapshot_id: snapshot_version for snapshot_version in snapshot_versions
         }
 
         try:
@@ -340,15 +337,9 @@ class TrackedPolicyVersionsService:
         if comparison_outcome == "no_meaningful_changes" and (
             legacy_upgrade_applied or suppressed_noise
         ):
-            return (
-                "Stored versions were normalized before comparison so scraper and page-chrome noise did not appear as a policy change."
-            )
+            return "Stored versions were normalized before comparison so scraper and page-chrome noise did not appear as a policy change."
         if legacy_upgrade_applied:
-            return (
-                "One or both stored versions were upgraded with the latest normalization rules before comparison."
-            )
+            return "One or both stored versions were upgraded with the latest normalization rules before comparison."
         if used_fallback:
-            return (
-                "Comparison used a conservative fallback cleanup path to avoid over-stripping policy text."
-            )
+            return "Comparison used a conservative fallback cleanup path to avoid over-stripping policy text."
         return None

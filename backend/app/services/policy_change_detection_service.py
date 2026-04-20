@@ -33,12 +33,8 @@ class PolicyChangeDetectionResult:
 class PolicyChangeDetectionService:
     """Decide whether a new policy capture is meaningfully different."""
 
-    def __init__(
-        self, *, policy_text_canonicalizer: PolicyTextCanonicalizer | None = None
-    ) -> None:
-        self._policy_text_canonicalizer = (
-            policy_text_canonicalizer or PolicyTextCanonicalizer()
-        )
+    def __init__(self, *, policy_text_canonicalizer: PolicyTextCanonicalizer | None = None) -> None:
+        self._policy_text_canonicalizer = policy_text_canonicalizer or PolicyTextCanonicalizer()
 
     def detect_change(
         self,

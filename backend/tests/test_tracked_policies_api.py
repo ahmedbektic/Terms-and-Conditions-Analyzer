@@ -236,7 +236,9 @@ def _build_shared_services(
     return tracked_policy_service, effective_analysis_service
 
 
-def _build_versions_service(tracked_policy_service: TrackedPolicyService) -> TrackedPolicyVersionsService:
+def _build_versions_service(
+    tracked_policy_service: TrackedPolicyService,
+) -> TrackedPolicyVersionsService:
     return TrackedPolicyVersionsService(
         tracked_policy_repository=tracked_policy_service._tracked_policy_repository,  # type: ignore[attr-defined]
         policy_snapshot_repository=tracked_policy_service._policy_snapshot_repository,  # type: ignore[attr-defined]
@@ -749,7 +751,9 @@ def test_tracked_policy_snapshot_history_returns_versions_newest_first(
         )
     )
     monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
-    monkeypatch.setattr(deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service))
+    monkeypatch.setattr(
+        deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service)
+    )
     monkeypatch.setattr(deps, "_analysis_service", analysis_service)
     owner_headers = _auth_headers("auth-user-a")
 
@@ -796,7 +800,9 @@ def test_tracked_policy_compare_returns_older_newer_metadata_and_diff_blocks(
         )
     )
     monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
-    monkeypatch.setattr(deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service))
+    monkeypatch.setattr(
+        deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service)
+    )
     monkeypatch.setattr(deps, "_analysis_service", analysis_service)
     owner_headers = _auth_headers("auth-user-a")
 
@@ -912,7 +918,9 @@ def test_tracked_policy_compare_rejects_duplicate_snapshot_ids(
         )
     )
     monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
-    monkeypatch.setattr(deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service))
+    monkeypatch.setattr(
+        deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service)
+    )
     monkeypatch.setattr(deps, "_analysis_service", analysis_service)
     owner_headers = _auth_headers("auth-user-a")
 

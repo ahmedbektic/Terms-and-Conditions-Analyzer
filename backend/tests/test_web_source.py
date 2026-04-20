@@ -4,7 +4,6 @@ import pytest
 
 from app.services.web_source import SimpleFetchedContentExtractor
 
-
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("bs4") is None,
     reason="beautifulsoup4 not installed",

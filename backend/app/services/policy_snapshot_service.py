@@ -48,12 +48,8 @@ from .web_source import (
 _NO_CHANGE_CAPTURE_MESSAGE = (
     "No meaningful policy changes were detected, so no new stored version was created."
 )
-_REPORT_CREATION_FAILED_MESSAGE = (
-    "We detected a possible update, but couldn't finish saving a new stored version. No new stored version was added. Try checking again in a moment."
-)
-_REPORT_CREATION_TIMEOUT_MESSAGE = (
-    "We detected a possible update, but the AI analysis timed out before a new stored version could be saved. No new stored version was added. Try checking again in a moment."
-)
+_REPORT_CREATION_FAILED_MESSAGE = "We detected a possible update, but couldn't finish saving a new stored version. No new stored version was added. Try checking again in a moment."
+_REPORT_CREATION_TIMEOUT_MESSAGE = "We detected a possible update, but the AI analysis timed out before a new stored version could be saved. No new stored version was added. Try checking again in a moment."
 
 
 class PolicySnapshotTrackedPolicyNotFoundError(Exception):
@@ -347,7 +343,9 @@ class PolicySnapshotService:
         self._policy_change_event_repository.create(
             event=PolicyChangeEventCreateInput(
                 tracked_policy_id=tracked_policy_id,
-                previous_snapshot_id=previous_snapshot.id if previous_snapshot is not None else None,
+                previous_snapshot_id=(
+                    previous_snapshot.id if previous_snapshot is not None else None
+                ),
                 new_snapshot_id=new_snapshot.id if new_snapshot is not None else None,
                 detected_at=detected_at,
                 change_status=change_status,

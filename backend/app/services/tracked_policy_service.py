@@ -102,9 +102,7 @@ class TrackedPolicyService:
         self._public_web_source_inspector = (
             public_web_source_inspector or PublicWebSourceInspector()
         )
-        self._policy_text_canonicalizer = (
-            policy_text_canonicalizer or PolicyTextCanonicalizer()
-        )
+        self._policy_text_canonicalizer = policy_text_canonicalizer or PolicyTextCanonicalizer()
         self._policy_snapshot_service = policy_snapshot_service or PolicySnapshotService(
             tracked_policy_repository=tracked_policy_repository,
             policy_snapshot_repository=policy_snapshot_repository,

@@ -186,14 +186,19 @@ def test_compare_snapshots_returns_localized_diff_blocks_for_real_clause_change(
     assert comparison.older_snapshot.snapshot_id == older_snapshot.id
     assert comparison.newer_snapshot.snapshot_id == newer_snapshot.id
     assert comparison.comparison_outcome == "meaningful_changes"
-    assert comparison.diff_blocks[0].older_text == "Terms of Service Users must resolve disputes in Texas."
+    assert (
+        comparison.diff_blocks[0].older_text
+        == "Terms of Service Users must resolve disputes in Texas."
+    )
     assert comparison.diff_blocks[1].newer_text == (
         "Terms of Service Users must resolve disputes in Delaware."
     )
     assert comparison.diff_blocks[-1].change_type == "unchanged"
 
 
-def test_compare_snapshots_returns_no_meaningful_changes_for_legacy_noise_only_differences() -> None:
+def test_compare_snapshots_returns_no_meaningful_changes_for_legacy_noise_only_differences() -> (
+    None
+):
     repo_root = Path(__file__).resolve().parents[2]
     term1 = (repo_root / "term1.txt").read_text(encoding="utf-8")
     term2 = (repo_root / "term2.txt").read_text(encoding="utf-8")

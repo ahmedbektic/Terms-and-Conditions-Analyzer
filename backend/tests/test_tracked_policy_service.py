@@ -548,10 +548,7 @@ def test_tracked_policy_service_marks_policy_invalid_source_and_does_not_create_
     assert len(tracked_policies) == 1
     assert tracked_policies[0].tracking_status == PolicyTrackingStatus.INVALID_SOURCE
     assert tracked_policies[0].latest_capture_status == PolicyCaptureStatus.CAPTURE_FAILED
-    assert (
-        tracked_policies[0].latest_change_status
-        == PolicyChangeStatus.COMPARISON_INCOMPLETE
-    )
+    assert tracked_policies[0].latest_change_status == PolicyChangeStatus.COMPARISON_INCOMPLETE
     assert "404 not found" in (tracked_policies[0].latest_capture_message or "").lower()
     assert tracked_policies[0].last_successful_capture_at == checked_at
     assert tracked_policies[0].snapshot_version_count == 1
