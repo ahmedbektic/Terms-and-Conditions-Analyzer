@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 import httpx
@@ -11,6 +10,10 @@ from app.api.deps import reset_demo_storage
 from app.auth.subject_resolver import AuthSubjectResolver
 from app.auth.supabase_jwt import SupabaseJwtVerifier
 from app.main import create_app
+from backend.tests.policy_text_samples import (
+    LEGACY_NOISY_POLICY_TEXT_AFTER,
+    LEGACY_NOISY_POLICY_TEXT_BEFORE,
+)
 from app.repositories.in_memory import (
     InMemoryAgreementRepository,
     InMemoryPolicyChangeEventRepository,
@@ -845,9 +848,6 @@ def test_tracked_policy_compare_returns_older_newer_metadata_and_diff_blocks(
 def test_tracked_policy_compare_returns_no_meaningful_changes_for_legacy_noise_only_differences(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    term1 = (repo_root / "term1.txt").read_text(encoding="utf-8")
-    term2 = (repo_root / "term2.txt").read_text(encoding="utf-8")
     tracked_policy_service, analysis_service = _build_shared_services()
     tracked_policy = tracked_policy_service._tracked_policy_repository.create(  # type: ignore[attr-defined]
         subject_type="supabase_user",
@@ -862,8 +862,8 @@ def test_tracked_policy_compare_returns_no_meaningful_changes_for_legacy_noise_o
     older_snapshot = tracked_policy_service._policy_snapshot_repository.append_for_tracked_policy_if_changed(  # type: ignore[attr-defined]
         tracked_policy_id=tracked_policy.id,
         snapshot=PolicySnapshotCreateInput(
-            raw_text_body=term1,
-            normalized_text_body=term1,
+            raw_text_body=LEGACY_NOISY_POLICY_TEXT_BEFORE,
+            normalized_text_body=LEGACY_NOISY_POLICY_TEXT_BEFORE,
             captured_at=datetime(2026, 3, 24, 9, 0, tzinfo=timezone.utc),
             source_url="https://example.com/terms",
             final_url="https://example.com/terms",
@@ -872,8 +872,8 @@ def test_tracked_policy_compare_returns_no_meaningful_changes_for_legacy_noise_o
     newer_snapshot = tracked_policy_service._policy_snapshot_repository.append_for_tracked_policy_if_changed(  # type: ignore[attr-defined]
         tracked_policy_id=tracked_policy.id,
         snapshot=PolicySnapshotCreateInput(
-            raw_text_body=term2,
-            normalized_text_body=term2,
+            raw_text_body=LEGACY_NOISY_POLICY_TEXT_AFTER,
+            normalized_text_body=LEGACY_NOISY_POLICY_TEXT_AFTER,
             captured_at=datetime(2026, 3, 25, 9, 0, tzinfo=timezone.utc),
             source_url="https://example.com/terms",
             final_url="https://example.com/terms",

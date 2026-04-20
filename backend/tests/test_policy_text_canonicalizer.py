@@ -1,19 +1,26 @@
-from pathlib import Path
-
+from backend.tests.policy_text_samples import (
+    LEGACY_NOISY_POLICY_TEXT_AFTER,
+    LEGACY_NOISY_POLICY_TEXT_BEFORE,
+)
 from app.services.policy_text_canonicalizer import PolicyTextCanonicalizer
 
 
 def test_canonicalizer_suppresses_real_form_noise_from_legacy_samples() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    term1 = (repo_root / "term1.txt").read_text(encoding="utf-8")
-    term2 = (repo_root / "term2.txt").read_text(encoding="utf-8")
     canonicalizer = PolicyTextCanonicalizer()
 
-    result_one = canonicalizer.canonicalize_text(term1, legacy_upgrade_applied=True)
-    result_two = canonicalizer.canonicalize_text(term2, legacy_upgrade_applied=True)
+    result_one = canonicalizer.canonicalize_text(
+        LEGACY_NOISY_POLICY_TEXT_BEFORE,
+        legacy_upgrade_applied=True,
+    )
+    result_two = canonicalizer.canonicalize_text(
+        LEGACY_NOISY_POLICY_TEXT_AFTER,
+        legacy_upgrade_applied=True,
+    )
 
     assert result_one.comparison_text_body == result_two.comparison_text_body
-    assert "terms and conditions outline the rules" in result_one.comparison_text_body.lower()
+    assert "welcome to concise, a news aggregation platform" in (
+        result_one.comparison_text_body.lower()
+    )
     assert "this field is for validation purposes" not in result_one.comparison_text_body.lower()
     assert "save your cart" not in result_one.comparison_text_body.lower()
 

@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 
+from backend.tests.policy_text_samples import (
+    LEGACY_NOISY_POLICY_TEXT_AFTER,
+    LEGACY_NOISY_POLICY_TEXT_BEFORE,
+)
 from app.repositories.in_memory import (
     InMemoryPolicyChangeEventRepository,
     InMemoryPolicySnapshotRepository,
@@ -199,9 +202,6 @@ def test_compare_snapshots_returns_localized_diff_blocks_for_real_clause_change(
 def test_compare_snapshots_returns_no_meaningful_changes_for_legacy_noise_only_differences() -> (
     None
 ):
-    repo_root = Path(__file__).resolve().parents[2]
-    term1 = (repo_root / "term1.txt").read_text(encoding="utf-8")
-    term2 = (repo_root / "term2.txt").read_text(encoding="utf-8")
     (
         service,
         tracked_policy_repository,
@@ -222,8 +222,8 @@ def test_compare_snapshots_returns_no_meaningful_changes_for_legacy_noise_only_d
     older_snapshot = policy_snapshot_repository.append_for_tracked_policy_if_changed(
         tracked_policy_id=tracked_policy.id,
         snapshot=PolicySnapshotCreateInput(
-            raw_text_body=term1,
-            normalized_text_body=term1,
+            raw_text_body=LEGACY_NOISY_POLICY_TEXT_BEFORE,
+            normalized_text_body=LEGACY_NOISY_POLICY_TEXT_BEFORE,
             captured_at=datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc),
             source_url="https://example.com/terms",
             final_url="https://example.com/terms",
@@ -232,8 +232,8 @@ def test_compare_snapshots_returns_no_meaningful_changes_for_legacy_noise_only_d
     newer_snapshot = policy_snapshot_repository.append_for_tracked_policy_if_changed(
         tracked_policy_id=tracked_policy.id,
         snapshot=PolicySnapshotCreateInput(
-            raw_text_body=term2,
-            normalized_text_body=term2,
+            raw_text_body=LEGACY_NOISY_POLICY_TEXT_AFTER,
+            normalized_text_body=LEGACY_NOISY_POLICY_TEXT_AFTER,
             captured_at=datetime(2026, 3, 2, 12, 0, tzinfo=timezone.utc),
             source_url="https://example.com/terms",
             final_url="https://example.com/terms",

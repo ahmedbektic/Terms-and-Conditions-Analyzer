@@ -2,8 +2,11 @@ from datetime import datetime, timezone
 
 import httpx
 import pytest
-from pathlib import Path
 
+from backend.tests.policy_text_samples import (
+    LEGACY_NOISY_POLICY_TEXT_AFTER,
+    LEGACY_NOISY_POLICY_TEXT_BEFORE,
+)
 from app.repositories.in_memory import (
     InMemoryPolicyChangeEventRepository,
     InMemoryPolicySnapshotRepository,
@@ -454,9 +457,6 @@ def test_policy_snapshot_service_suppresses_trivial_punctuation_only_changes() -
 def test_policy_snapshot_service_keeps_version_count_stable_for_legacy_scrape_noise_only_changes() -> (
     None
 ):
-    repo_root = Path(__file__).resolve().parents[2]
-    term1 = (repo_root / "term1.txt").read_text(encoding="utf-8")
-    term2 = (repo_root / "term2.txt").read_text(encoding="utf-8")
     (
         service,
         tracked_policy_repository,
@@ -467,7 +467,7 @@ def test_policy_snapshot_service_keeps_version_count_stable_for_legacy_scrape_no
             url_content_fetcher=_SequenceUrlFetcher(
                 [
                     UrlFetchPayload(
-                        body_text=term1,
+                        body_text=LEGACY_NOISY_POLICY_TEXT_BEFORE,
                         content_type="text/plain",
                         final_url="https://example.com/terms",
                         status_code=200,
@@ -475,7 +475,7 @@ def test_policy_snapshot_service_keeps_version_count_stable_for_legacy_scrape_no
                         fetch_duration_ms=70,
                     ),
                     UrlFetchPayload(
-                        body_text=term2,
+                        body_text=LEGACY_NOISY_POLICY_TEXT_AFTER,
                         content_type="text/plain",
                         final_url="https://example.com/terms",
                         status_code=200,

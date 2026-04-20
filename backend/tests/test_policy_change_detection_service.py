@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
-from pathlib import Path
 from uuid import uuid4
 
+from backend.tests.policy_text_samples import (
+    LEGACY_NOISY_POLICY_TEXT_AFTER,
+    LEGACY_NOISY_POLICY_TEXT_BEFORE,
+)
 from app.repositories.models import StoredPolicySnapshot
 from app.repositories.policy_capture_status import PolicySnapshotStatus
 from app.repositories.policy_change_status import PolicyChangeStatus
@@ -86,20 +89,17 @@ def test_detect_change_suppresses_trivial_punctuation_changes() -> None:
 
 
 def test_detect_change_suppresses_legacy_form_noise_differences() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    previous_text = (repo_root / "term1.txt").read_text(encoding="utf-8")
-    current_text = (repo_root / "term2.txt").read_text(encoding="utf-8")
     service = PolicyChangeDetectionService()
     previous_snapshot = _snapshot(
-        previous_text,
-        raw_text_body=previous_text,
+        LEGACY_NOISY_POLICY_TEXT_BEFORE,
+        raw_text_body=LEGACY_NOISY_POLICY_TEXT_BEFORE,
         normalization_version=None,
     )
 
     result = service.detect_change(
         previous_snapshot=previous_snapshot,
-        raw_text_body=current_text,
-        normalized_text_body=current_text,
+        raw_text_body=LEGACY_NOISY_POLICY_TEXT_AFTER,
+        normalized_text_body=LEGACY_NOISY_POLICY_TEXT_AFTER,
         normalization_version=None,
     )
 
