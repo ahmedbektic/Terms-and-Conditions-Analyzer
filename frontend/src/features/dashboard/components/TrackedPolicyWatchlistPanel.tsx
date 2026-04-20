@@ -14,6 +14,7 @@ interface TrackedPolicyWatchlistPanelProps {
   onCreateTrackedPolicy: (sourceUrl: string) => Promise<void>;
   onCheckTrackedPolicy: (trackedPolicyId: string) => Promise<void>;
   onRemoveTrackedPolicy: (trackedPolicyId: string) => Promise<void>;
+  onViewHistory: (trackedPolicy: DashboardTrackedPolicy) => Promise<void> | void;
 }
 
 interface WatchlistStatusNote {
@@ -129,6 +130,7 @@ export function TrackedPolicyWatchlistPanel({
   onCreateTrackedPolicy,
   onCheckTrackedPolicy,
   onRemoveTrackedPolicy,
+  onViewHistory,
 }: TrackedPolicyWatchlistPanelProps) {
   const [sourceUrl, setSourceUrl] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -241,6 +243,17 @@ export function TrackedPolicyWatchlistPanel({
                 </span>
               </div>
               <div className="watchlist-row-actions">
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => void onViewHistory(trackedPolicy)}
+                  disabled={
+                    checkingTrackedPolicyId === trackedPolicy.id ||
+                    removingTrackedPolicyId === trackedPolicy.id
+                  }
+                >
+                  View history
+                </button>
                 <button
                   type="button"
                   className="button-secondary"

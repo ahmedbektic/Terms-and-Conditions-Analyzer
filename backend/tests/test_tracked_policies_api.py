@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 import httpx
@@ -18,6 +19,8 @@ from app.repositories.in_memory import (
     InMemoryStorage,
     InMemoryTrackedPolicyRepository,
 )
+from app.repositories.models import PolicySnapshotCreateInput
+from app.repositories.policy_tracking_status import PolicyTrackingStatus
 from app.services.ai_provider import DeterministicAnalysisProvider
 from app.services.ai_provider import AnalysisProviderInvocationError
 from app.services.analysis_execution import SyncAnalysisExecutionStrategy
@@ -25,6 +28,7 @@ from app.services.analysis_service import AnalysisOrchestrationService, InvalidS
 from app.services.request_subject import RequestSubject
 from app.services.submission_preparation import SubmissionPreparationService
 from app.services.tracked_policy_service import TrackedPolicyService
+from app.services.tracked_policy_versions_service import TrackedPolicyVersionsService
 from app.services.web_source import (
     CapturedPolicySnapshotSource,
     CapturedWebSource,
@@ -99,6 +103,7 @@ class _InspectorDouble:
             source_type=self._inspected_source.source_type,
             checked_at=self._inspected_source.last_checked_at,
             captured_text=self._captured_text,
+            normalization_version=2,
         )
 
     def capture_policy_snapshot_source(self, *, canonical_url: str) -> CapturedPolicySnapshotSource:
@@ -122,6 +127,7 @@ class _InspectorDouble:
             fetch_duration_ms=20,
             extractor_name="inspector_double",
             extraction_strategy="stub_capture",
+            normalization_version=2,
         )
 
     def capture_policy_text(self, *, canonical_url: str) -> str:
@@ -228,6 +234,14 @@ def _build_shared_services(
         public_web_source_inspector=effective_inspector,
     )
     return tracked_policy_service, effective_analysis_service
+
+
+def _build_versions_service(tracked_policy_service: TrackedPolicyService) -> TrackedPolicyVersionsService:
+    return TrackedPolicyVersionsService(
+        tracked_policy_repository=tracked_policy_service._tracked_policy_repository,  # type: ignore[attr-defined]
+        policy_snapshot_repository=tracked_policy_service._policy_snapshot_repository,  # type: ignore[attr-defined]
+        policy_change_event_repository=tracked_policy_service._policy_snapshot_service._policy_change_event_repository,  # type: ignore[attr-defined]
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -715,3 +729,212 @@ def test_tracked_policy_check_returns_actionable_error_and_does_not_increment_ve
 
     report_list_response = client.get("/api/v1/reports", headers=owner_headers)
     assert len(report_list_response.json()) == 1
+
+
+def test_tracked_policy_snapshot_history_returns_versions_newest_first(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            ),
+            check_captured_texts=[
+                "These updated terms include arbitration, privacy, and mandatory venue clauses."
+            ],
+        )
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service))
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+
+    check_response = client.post(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/check",
+        headers=owner_headers,
+    )
+    assert check_response.status_code == 200
+
+    history_response = client.get(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/snapshots",
+        headers=owner_headers,
+    )
+
+    assert history_response.status_code == 200
+    history = history_response.json()
+    assert [snapshot["version_number"] for snapshot in history] == [2, 1]
+    assert history[0]["change_status"] == "updated"
+    assert history[1]["change_status"] in {None, "not_evaluated"}
+
+
+def test_tracked_policy_compare_returns_older_newer_metadata_and_diff_blocks(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            ),
+            check_captured_texts=[
+                "These updated terms include arbitration, privacy, and mandatory venue clauses."
+            ],
+        )
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service))
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+
+    client.post(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/check",
+        headers=owner_headers,
+    )
+    history_response = client.get(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/snapshots",
+        headers=owner_headers,
+    )
+    history = history_response.json()
+
+    compare_response = client.get(
+        (
+            f"/api/v1/tracked-policies/{tracked_policy_id}/compare"
+            f"?snapshot_a={history[0]['snapshot_id']}&snapshot_b={history[1]['snapshot_id']}"
+        ),
+        headers=owner_headers,
+    )
+
+    assert compare_response.status_code == 200
+    payload = compare_response.json()
+    assert payload["older_snapshot"]["version_number"] == 1
+    assert payload["newer_snapshot"]["version_number"] == 2
+    assert payload["tracked_policy"]["id"] == tracked_policy_id
+    assert payload["comparison_outcome"] == "meaningful_changes"
+    assert payload["normalization_notice"] is None
+    assert payload["render_mode"] == "split_or_unified"
+    assert {block["change_type"] for block in payload["diff_blocks"]} >= {"added", "removed"}
+
+
+def test_tracked_policy_compare_returns_no_meaningful_changes_for_legacy_noise_only_differences(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    term1 = (repo_root / "term1.txt").read_text(encoding="utf-8")
+    term2 = (repo_root / "term2.txt").read_text(encoding="utf-8")
+    tracked_policy_service, analysis_service = _build_shared_services()
+    tracked_policy = tracked_policy_service._tracked_policy_repository.create(  # type: ignore[attr-defined]
+        subject_type="supabase_user",
+        subject_id="auth-user-a",
+        canonical_url="https://example.com/terms",
+        display_name="Example Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.ACTIVE,
+        last_checked_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+        active=True,
+    )
+    older_snapshot = tracked_policy_service._policy_snapshot_repository.append_for_tracked_policy_if_changed(  # type: ignore[attr-defined]
+        tracked_policy_id=tracked_policy.id,
+        snapshot=PolicySnapshotCreateInput(
+            raw_text_body=term1,
+            normalized_text_body=term1,
+            captured_at=datetime(2026, 3, 24, 9, 0, tzinfo=timezone.utc),
+            source_url="https://example.com/terms",
+            final_url="https://example.com/terms",
+        ),
+    ).snapshot
+    newer_snapshot = tracked_policy_service._policy_snapshot_repository.append_for_tracked_policy_if_changed(  # type: ignore[attr-defined]
+        tracked_policy_id=tracked_policy.id,
+        snapshot=PolicySnapshotCreateInput(
+            raw_text_body=term2,
+            normalized_text_body=term2,
+            captured_at=datetime(2026, 3, 25, 9, 0, tzinfo=timezone.utc),
+            source_url="https://example.com/terms",
+            final_url="https://example.com/terms",
+        ),
+    ).snapshot
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(
+        deps,
+        "_tracked_policy_versions_service",
+        _build_versions_service(tracked_policy_service),
+    )
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    compare_response = client.get(
+        (
+            f"/api/v1/tracked-policies/{tracked_policy.id}/compare"
+            f"?snapshot_a={newer_snapshot.id}&snapshot_b={older_snapshot.id}"
+        ),
+        headers=owner_headers,
+    )
+
+    assert compare_response.status_code == 200
+    payload = compare_response.json()
+    assert payload["comparison_outcome"] == "no_meaningful_changes"
+    assert payload["diff_blocks"] == []
+    assert "normalized before comparison" in (payload["normalization_notice"] or "").lower()
+
+
+def test_tracked_policy_compare_rejects_duplicate_snapshot_ids(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            )
+        )
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service))
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+    history_response = client.get(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/snapshots",
+        headers=owner_headers,
+    )
+    snapshot_id = history_response.json()[0]["snapshot_id"]
+
+    compare_response = client.get(
+        (
+            f"/api/v1/tracked-policies/{tracked_policy_id}/compare"
+            f"?snapshot_a={snapshot_id}&snapshot_b={snapshot_id}"
+        ),
+        headers=owner_headers,
+    )
+
+    assert compare_response.status_code == 422
+    assert "choose two different" in compare_response.json()["detail"].lower()

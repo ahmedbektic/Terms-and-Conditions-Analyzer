@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 import httpx
 import pytest
+from pathlib import Path
 
 from app.repositories.in_memory import (
     InMemoryPolicyChangeEventRepository,
@@ -147,7 +148,8 @@ def test_policy_snapshot_service_creates_first_snapshot_for_legacy_policy_withou
     assert latest_snapshot.redirect_count == 1
     assert latest_snapshot.fetch_duration_ms == 145
     assert latest_snapshot.extractor_name == "simple_fetched_content_extractor"
-    assert latest_snapshot.extraction_strategy == "url_fetch_html_tag_strip"
+    assert latest_snapshot.extraction_strategy == "url_fetch_html_dom_canonicalized"
+    assert latest_snapshot.normalization_version == 2
 
 
 def test_policy_snapshot_service_keeps_version_count_stable_when_content_is_unchanged() -> None:
@@ -438,6 +440,63 @@ def test_policy_snapshot_service_suppresses_trivial_punctuation_only_changes() -
     )
     assert latest_change_event is not None
     assert latest_change_event.detection_method == "trivial_formatting_suppressed"
+    assert (
+        len(snapshot_repository.list_for_tracked_policy(tracked_policy_id=tracked_policy.id)) == 1
+    )
+
+
+def test_policy_snapshot_service_keeps_version_count_stable_for_legacy_scrape_noise_only_changes() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    term1 = (repo_root / "term1.txt").read_text(encoding="utf-8")
+    term2 = (repo_root / "term2.txt").read_text(encoding="utf-8")
+    (
+        service,
+        tracked_policy_repository,
+        snapshot_repository,
+        change_event_repository,
+    ) = _build_service(
+        inspector=PublicWebSourceInspector(
+            url_content_fetcher=_SequenceUrlFetcher(
+                [
+                    UrlFetchPayload(
+                        body_text=term1,
+                        content_type="text/plain",
+                        final_url="https://example.com/terms",
+                        status_code=200,
+                        redirect_count=0,
+                        fetch_duration_ms=70,
+                    ),
+                    UrlFetchPayload(
+                        body_text=term2,
+                        content_type="text/plain",
+                        final_url="https://example.com/terms",
+                        status_code=200,
+                        redirect_count=0,
+                        fetch_duration_ms=71,
+                    ),
+                ]
+            )
+        )
+    )
+    subject, tracked_policy = _create_tracked_policy(tracked_policy_repository)
+
+    first_result = service.check_tracked_policy(
+        subject=subject, tracked_policy_id=tracked_policy.id
+    )
+    second_result = service.check_tracked_policy(
+        subject=subject,
+        tracked_policy_id=tracked_policy.id,
+    )
+
+    assert first_result.snapshot_created is True
+    assert second_result.snapshot_created is False
+    assert second_result.tracked_policy.latest_change_status == PolicyChangeStatus.UNCHANGED
+    assert second_result.tracked_policy.snapshot_version_count == 1
+    latest_change_event = change_event_repository.get_latest_for_tracked_policy(
+        tracked_policy_id=tracked_policy.id
+    )
+    assert latest_change_event is not None
+    assert latest_change_event.change_status == PolicyChangeStatus.UNCHANGED
     assert (
         len(snapshot_repository.list_for_tracked_policy(tracked_policy_id=tracked_policy.id)) == 1
     )

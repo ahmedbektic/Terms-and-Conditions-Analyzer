@@ -43,6 +43,32 @@ export interface TrackedPolicyCreateResponse extends TrackedPolicyResponse {
   baseline_report_action: 'created' | 'reused';
 }
 
+export interface TrackedPolicySnapshotResponse {
+  snapshot_id: string;
+  version_number: number;
+  captured_at: string;
+  source_url: string | null;
+  final_url: string | null;
+  capture_status: string;
+  change_status: string | null;
+}
+
+export interface TrackedPolicySnapshotCompareBlockResponse {
+  change_type: 'unchanged' | 'added' | 'removed';
+  older_text: string | null;
+  newer_text: string | null;
+}
+
+export interface TrackedPolicySnapshotComparisonResponse {
+  tracked_policy: TrackedPolicyResponse;
+  older_snapshot: TrackedPolicySnapshotResponse;
+  newer_snapshot: TrackedPolicySnapshotResponse;
+  diff_blocks: TrackedPolicySnapshotCompareBlockResponse[];
+  comparison_outcome: 'meaningful_changes' | 'no_meaningful_changes';
+  normalization_notice: string | null;
+  render_mode: 'split_or_unified';
+}
+
 export interface AnalysisTriggerRequest {
   trigger: 'manual';
 }

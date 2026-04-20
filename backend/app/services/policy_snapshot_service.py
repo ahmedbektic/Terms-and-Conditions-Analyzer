@@ -154,7 +154,9 @@ class PolicySnapshotService:
 
         detection_result = self._policy_change_detection_service.detect_change(
             previous_snapshot=previous_snapshot,
+            raw_text_body=captured_source.raw_text_body,
             normalized_text_body=captured_source.normalized_text_body,
+            normalization_version=captured_source.normalization_version,
         )
         append_result = self._append_snapshot_if_needed(
             tracked_policy_id=tracked_policy_id,
@@ -260,6 +262,7 @@ class PolicySnapshotService:
         return PolicySnapshotCreateInput(
             raw_text_body=captured_source.raw_text_body,
             normalized_text_body=captured_source.normalized_text_body,
+            normalization_version=captured_source.normalization_version,
             captured_at=captured_source.checked_at,
             source_url=captured_source.canonical_url,
             final_url=captured_source.final_url,

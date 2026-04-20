@@ -413,6 +413,7 @@ class InMemoryPolicySnapshotRepository:
             extractor_name=snapshot.extractor_name,
             extraction_strategy=snapshot.extraction_strategy,
             capture_error_message=snapshot.capture_error_message,
+            normalization_version=snapshot.normalization_version,
         )
         stored_snapshots.append(stored_snapshot)
         return PolicySnapshotAppendResult(snapshot=stored_snapshot, created=True)

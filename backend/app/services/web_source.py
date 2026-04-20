@@ -21,8 +21,13 @@ from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
+try:
+    from bs4 import BeautifulSoup
+except ImportError:  # pragma: no cover - exercised only before dependencies are installed
+    BeautifulSoup = None  # type: ignore[assignment]
 
 from ..core.input_validation import normalize_untrusted_text, validate_external_source_url
+from .policy_text_canonicalizer import PolicyTextCanonicalizer
 
 DEFAULT_WEB_SOURCE_TIMEOUT_SECONDS = 8.0
 MIN_TRACKABLE_SOURCE_TEXT_LENGTH = 20
@@ -80,6 +85,7 @@ class CapturedWebSource:
     fetch_duration_ms: int | None = None
     extractor_name: str | None = None
     extraction_strategy: str | None = None
+    normalization_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +96,7 @@ class ExtractedFetchedContent:
     normalized_text_body: str
     extraction_strategy: str
     extractor_name: str
+    normalization_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +115,7 @@ class CapturedPolicySnapshotSource:
     fetch_duration_ms: int | None
     extractor_name: str
     extraction_strategy: str
+    normalization_version: int | None = None
 
 
 class UrlContentFetcher(Protocol):
@@ -161,11 +169,25 @@ class HttpxUrlContentFetcher:
 class SimpleFetchedContentExtractor:
     """Lightweight fetched-content extractor for readable web pages."""
 
+    def __init__(
+        self, *, policy_text_canonicalizer: PolicyTextCanonicalizer | None = None
+    ) -> None:
+        self._policy_text_canonicalizer = (
+            policy_text_canonicalizer or PolicyTextCanonicalizer()
+        )
+
     def extract(self, *, body_text: str, content_type: str) -> tuple[str, str]:
         normalized_content_type = content_type.lower()
         if "html" in normalized_content_type or self._looks_like_html(body_text):
-            return self._extract_text_from_html(body_text), "url_fetch_html_tag_strip"
-        return self._normalize_text(unescape(body_text)), "url_fetch_plain_text"
+            raw_text = self._extract_raw_text_from_html(body_text)
+            return (
+                self._canonicalize_extracted_text(raw_text),
+                "url_fetch_html_dom_canonicalized",
+            )
+        return (
+            self._canonicalize_extracted_text(unescape(body_text)),
+            "url_fetch_plain_text_canonicalized",
+        )
 
     def extract_title(self, *, body_text: str, content_type: str) -> str | None:
         normalized_content_type = content_type.lower()
@@ -195,31 +217,85 @@ class SimpleFetchedContentExtractor:
         normalized_content_type = content_type.lower()
         if "html" in normalized_content_type or self._looks_like_html(body_text):
             raw_text = self._extract_raw_text_from_html(body_text)
+            canonicalized = self._policy_text_canonicalizer.canonicalize_text(raw_text)
             return ExtractedFetchedContent(
                 raw_text_body=raw_text,
-                normalized_text_body=self._normalize_text(raw_text),
-                extraction_strategy="url_fetch_html_tag_strip",
+                normalized_text_body=canonicalized.comparison_text_body,
+                extraction_strategy="url_fetch_html_dom_canonicalized",
                 extractor_name="simple_fetched_content_extractor",
+                normalization_version=canonicalized.normalization_version,
             )
 
         raw_text = unescape(body_text)
+        canonicalized = self._policy_text_canonicalizer.canonicalize_text(raw_text)
         return ExtractedFetchedContent(
             raw_text_body=raw_text,
-            normalized_text_body=self._normalize_text(raw_text),
-            extraction_strategy="url_fetch_plain_text",
+            normalized_text_body=canonicalized.comparison_text_body,
+            extraction_strategy="url_fetch_plain_text_canonicalized",
             extractor_name="simple_fetched_content_extractor",
+            normalization_version=canonicalized.normalization_version,
         )
 
     def _extract_raw_text_from_html(self, html_text: str) -> str:
-        """Extract raw plain text from HTML without whitespace normalization."""
+        """Extract raw plain text from HTML while preserving useful block boundaries."""
 
-        without_scripts = re.sub(
+        if BeautifulSoup is None:
+            return self._extract_raw_text_without_dom(html_text)
+
+        soup = BeautifulSoup(html_text, "html.parser")
+        for tag_name in (
+            "script",
+            "style",
+            "noscript",
+            "svg",
+            "form",
+            "nav",
+            "header",
+            "footer",
+            "aside",
+        ):
+            for tag in soup.find_all(tag_name):
+                tag.decompose()
+
+        junk_container_pattern = re.compile(
+            r"(?i)\b(cart|newsletter|modal|popup|dialog|cookie|breadcrumb|share|social|"
+            r"related|sidebar|search|cta|contact|callback|quote|menu)\b"
+        )
+        for tag in soup.find_all(True):
+            tag_attributes = " ".join(
+                str(item)
+                for item in (
+                    tag.get("id"),
+                    " ".join(tag.get("class", [])),
+                    tag.get("role"),
+                    tag.get("aria-label"),
+                )
+                if item
+            )
+            if tag_attributes and junk_container_pattern.search(tag_attributes):
+                tag.decompose()
+
+        root = soup.find("main") or soup.find("article") or soup.body or soup
+        for br_tag in root.find_all("br"):
+            br_tag.replace_with("\n")
+        return root.get_text("\n", strip=False)
+
+    def _extract_raw_text_without_dom(self, html_text: str) -> str:
+        html_without_scripts = re.sub(
             r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>",
             " ",
             html_text,
         )
-        without_comments = re.sub(r"(?s)<!--.*?-->", " ", without_scripts)
-        return unescape(re.sub(r"(?s)<[^>]+>", " ", without_comments))
+        block_boundary_html = re.sub(
+            r"(?is)</?(?:h[1-6]|p|li|ol|ul|section|article|tr|td|th|br|div)\b[^>]*>",
+            "\n",
+            html_without_scripts,
+        )
+        stripped_html = re.sub(r"(?is)<[^>]+>", " ", block_boundary_html)
+        return unescape(stripped_html)
+
+    def _canonicalize_extracted_text(self, raw_text: str) -> str:
+        return self._policy_text_canonicalizer.canonicalize_text(raw_text).comparison_text_body
 
     def _normalize_text(self, value: str) -> str:
         return normalize_untrusted_text(value)
@@ -263,10 +339,17 @@ class PublicWebSourceInspector:
         *,
         url_content_fetcher: UrlContentFetcher | None = None,
         fetched_content_extractor: FetchedContentExtractor | None = None,
+        policy_text_canonicalizer: PolicyTextCanonicalizer | None = None,
     ) -> None:
         self._url_content_fetcher = url_content_fetcher or HttpxUrlContentFetcher()
         self._fetched_content_extractor = (
-            fetched_content_extractor or SimpleFetchedContentExtractor()
+            fetched_content_extractor
+            or SimpleFetchedContentExtractor(
+                policy_text_canonicalizer=policy_text_canonicalizer
+            )
+        )
+        self._policy_text_canonicalizer = (
+            policy_text_canonicalizer or PolicyTextCanonicalizer()
         )
 
     def inspect_url(self, *, source_url: str) -> InspectedWebSource:
@@ -297,6 +380,7 @@ class PublicWebSourceInspector:
             fetch_duration_ms=snapshot_source.fetch_duration_ms,
             extractor_name=snapshot_source.extractor_name,
             extraction_strategy=snapshot_source.extraction_strategy,
+            normalization_version=snapshot_source.normalization_version,
         )
 
     def capture_policy_text(self, *, canonical_url: str) -> str:
@@ -331,6 +415,7 @@ class PublicWebSourceInspector:
             fetch_duration_ms=payload.fetch_duration_ms,
             extractor_name=extracted.extractor_name,
             extraction_strategy=extracted.extraction_strategy,
+            normalization_version=extracted.normalization_version,
         )
 
     def _fetch_extract_and_validate(
@@ -385,11 +470,13 @@ class PublicWebSourceInspector:
             body_text=body_text,
             content_type=content_type,
         )
+        canonicalized = self._policy_text_canonicalizer.canonicalize_text(normalized_text)
         return ExtractedFetchedContent(
             raw_text_body=normalized_text,
-            normalized_text_body=normalized_text,
+            normalized_text_body=canonicalized.comparison_text_body,
             extraction_strategy=extraction_strategy,
             extractor_name=extractor.__class__.__name__.lower(),
+            normalization_version=canonicalized.normalization_version,
         )
 
     def _derive_display_name(

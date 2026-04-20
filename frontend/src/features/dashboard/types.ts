@@ -62,6 +62,32 @@ export interface DashboardTrackedPolicy {
   snapshotVersionCount: number;
 }
 
+export interface DashboardTrackedPolicySnapshot {
+  snapshotId: string;
+  versionNumber: number;
+  capturedAt: string;
+  sourceUrl: string | null;
+  finalUrl: string | null;
+  captureStatus: string;
+  changeStatus: string | null;
+}
+
+export interface DashboardTrackedPolicyComparisonBlock {
+  changeType: 'unchanged' | 'added' | 'removed';
+  olderText: string | null;
+  newerText: string | null;
+}
+
+export interface DashboardTrackedPolicyComparison {
+  trackedPolicy: DashboardTrackedPolicy;
+  olderSnapshot: DashboardTrackedPolicySnapshot;
+  newerSnapshot: DashboardTrackedPolicySnapshot;
+  diffBlocks: DashboardTrackedPolicyComparisonBlock[];
+  comparisonOutcome: 'meaningful_changes' | 'no_meaningful_changes';
+  normalizationNotice: string | null;
+  renderMode: 'split_or_unified';
+}
+
 export interface DashboardTrackedPolicyEnrollmentResult {
   trackedPolicy: DashboardTrackedPolicy;
   baselineReportId: string;

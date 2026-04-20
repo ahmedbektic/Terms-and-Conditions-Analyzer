@@ -47,3 +47,41 @@ class TrackedPolicyCreateResponse(TrackedPolicyResponse):
 
     baseline_report_id: UUID
     baseline_report_action: Literal["created", "reused"]
+
+
+class TrackedPolicySnapshotResponse(BaseModel):
+    """Serialized tracked-policy snapshot metadata used by history/compare clients."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: UUID
+    version_number: int
+    captured_at: datetime
+    source_url: str | None
+    final_url: str | None
+    capture_status: str
+    change_status: str | None
+
+
+class TrackedPolicySnapshotCompareBlockResponse(BaseModel):
+    """One structured diff block for tracked-policy comparisons."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    change_type: Literal["unchanged", "added", "removed"]
+    older_text: str | None
+    newer_text: str | None
+
+
+class TrackedPolicySnapshotComparisonResponse(BaseModel):
+    """Serialized compare payload for two stored versions of one tracked policy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tracked_policy: TrackedPolicyResponse
+    older_snapshot: TrackedPolicySnapshotResponse
+    newer_snapshot: TrackedPolicySnapshotResponse
+    diff_blocks: list[TrackedPolicySnapshotCompareBlockResponse]
+    comparison_outcome: Literal["meaningful_changes", "no_meaningful_changes"]
+    normalization_notice: str | None
+    render_mode: Literal["split_or_unified"]

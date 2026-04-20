@@ -39,6 +39,7 @@ from .analysis_service import (
     InvalidSubmissionError,
     ReportNotFoundError,
 )
+from .policy_text_canonicalizer import PolicyTextCanonicalizer
 from .policy_snapshot_service import (
     PolicySnapshotCheckFailedError,
     PolicySnapshotService,
@@ -93,12 +94,16 @@ class TrackedPolicyService:
         policy_change_event_repository: PolicyChangeEventRepository | None = None,
         public_web_source_inspector: PublicWebSourceInspector | None = None,
         policy_snapshot_service: PolicySnapshotService | None = None,
+        policy_text_canonicalizer: PolicyTextCanonicalizer | None = None,
     ) -> None:
         self._tracked_policy_repository = tracked_policy_repository
         self._policy_snapshot_repository = policy_snapshot_repository
         self._analysis_service = analysis_service
         self._public_web_source_inspector = (
             public_web_source_inspector or PublicWebSourceInspector()
+        )
+        self._policy_text_canonicalizer = (
+            policy_text_canonicalizer or PolicyTextCanonicalizer()
         )
         self._policy_snapshot_service = policy_snapshot_service or PolicySnapshotService(
             tracked_policy_repository=tracked_policy_repository,
@@ -164,6 +169,9 @@ class TrackedPolicyService:
                 raise TrackedPolicyBaselineReportError(
                     "We couldn't recover the saved baseline text for that policy. Generate a new report for the URL and try again."
                 ) from error
+        canonicalized_baseline = self._policy_text_canonicalizer.canonicalize_text(
+            baseline_snapshot_text
+        )
 
         try:
             tracked_policy = self._tracked_policy_repository.create(
@@ -185,12 +193,13 @@ class TrackedPolicyService:
             tracked_policy_id=tracked_policy.id,
             snapshot=PolicySnapshotCreateInput(
                 raw_text_body=baseline_snapshot_text,
-                normalized_text_body=baseline_snapshot_text,
+                normalized_text_body=canonicalized_baseline.comparison_text_body,
                 captured_at=captured_source.checked_at,
                 source_url=captured_source.canonical_url,
                 final_url=captured_source.canonical_url,
                 extractor_name="tracked_policy_service",
                 extraction_strategy="report_backed_watchlist_enrollment",
+                normalization_version=canonicalized_baseline.normalization_version,
             ),
         )
         hydrated_tracked_policy = self._tracked_policy_repository.update_tracked_policy_check_state(

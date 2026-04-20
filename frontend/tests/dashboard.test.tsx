@@ -8,6 +8,8 @@ import type {
   ReportListItemResponse,
   ReportResponse,
   TrackedPolicyCreateResponse,
+  TrackedPolicySnapshotComparisonResponse,
+  TrackedPolicySnapshotResponse,
   TrackedPolicyResponse,
 } from '../src/lib/api/contracts';
 
@@ -91,6 +93,52 @@ function buildTrackedPolicyCreateResponse(
     ...buildTrackedPolicy(),
     baseline_report_id: '00000000-0000-4000-8000-000000000001',
     baseline_report_action: 'created',
+    ...overrides,
+  };
+}
+
+function buildTrackedPolicySnapshot(
+  overrides?: Partial<TrackedPolicySnapshotResponse>,
+): TrackedPolicySnapshotResponse {
+  return {
+    snapshot_id: '30000000-0000-4000-8000-000000000001',
+    version_number: 1,
+    captured_at: '2026-03-24T15:30:00Z',
+    source_url: 'https://example.com/legal/terms',
+    final_url: 'https://example.com/legal/terms',
+    capture_status: 'captured',
+    change_status: 'not_evaluated',
+    ...overrides,
+  };
+}
+
+function buildTrackedPolicyComparison(
+  overrides?: Partial<TrackedPolicySnapshotComparisonResponse>,
+): TrackedPolicySnapshotComparisonResponse {
+  return {
+    tracked_policy: buildTrackedPolicy(),
+    older_snapshot: buildTrackedPolicySnapshot(),
+    newer_snapshot: buildTrackedPolicySnapshot({
+      snapshot_id: '30000000-0000-4000-8000-000000000002',
+      version_number: 2,
+      captured_at: '2026-03-25T15:30:00Z',
+      change_status: 'updated',
+    }),
+    diff_blocks: [
+      {
+        change_type: 'removed',
+        older_text: 'Users must resolve disputes in Texas.',
+        newer_text: null,
+      },
+      {
+        change_type: 'added',
+        older_text: null,
+        newer_text: 'Users must resolve disputes in Delaware.',
+      },
+    ],
+    comparison_outcome: 'meaningful_changes',
+    normalization_notice: null,
+    render_mode: 'split_or_unified',
     ...overrides,
   };
 }
@@ -692,7 +740,59 @@ describe('DashboardPage', () => {
     expect(screen.getByText(/unchanged/i)).toBeTruthy();
   });
 
-  it('adds a tracked snapshot report to Saved Reports after a changed check and shows the compare placeholder', async () => {
+  it('explains that another stored version is needed before comparison is available', async () => {
+    const trackedPolicy = buildTrackedPolicy({
+      id: '20000000-0000-4000-8000-000000000012',
+      canonical_url: 'https://example.com/legal/terms',
+      display_name: 'Example Terms',
+      snapshot_version_count: 1,
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        return jsonResponse([]);
+      }
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        return jsonResponse([trackedPolicy]);
+      }
+      if (
+        url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000012/snapshots') &&
+        method === 'GET'
+      ) {
+        return jsonResponse([
+          buildTrackedPolicySnapshot({
+            snapshot_id: '30000000-0000-4000-8000-000000000012',
+            version_number: 1,
+          }),
+        ]);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(screen.getByText('Example Terms')).toBeTruthy());
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'View history' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'This policy needs at least two stored versions before comparison is available.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(
+      (screen.getByRole('button', { name: 'Compare selected versions' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it('opens tracked policy history and compares two stored versions in the dashboard', async () => {
     const baselineReport = buildReport({
       id: '00000000-0000-4000-8000-000000000010',
       agreement_id: '10000000-0000-4000-8000-000000000010',
@@ -723,6 +823,41 @@ describe('DashboardPage', () => {
       latest_change_status: 'updated',
       latest_change_detected_at: '2026-03-25T09:00:00Z',
       snapshot_version_count: 2,
+    });
+    const trackedPolicySnapshots = [
+      buildTrackedPolicySnapshot({
+        snapshot_id: '30000000-0000-4000-8000-000000000011',
+        version_number: 2,
+        captured_at: '2026-03-25T09:00:00Z',
+        source_url: 'https://concise.plus/terms.php',
+        final_url: 'https://concise.plus/terms.php',
+        change_status: 'updated',
+      }),
+      buildTrackedPolicySnapshot({
+        snapshot_id: '30000000-0000-4000-8000-000000000010',
+        version_number: 1,
+        captured_at: '2026-03-24T09:00:00Z',
+        source_url: 'https://concise.plus/terms.php',
+        final_url: 'https://concise.plus/terms.php',
+        change_status: 'not_evaluated',
+      }),
+    ];
+    const comparisonResponse = buildTrackedPolicyComparison({
+      tracked_policy: updatedTrackedPolicy,
+      older_snapshot: trackedPolicySnapshots[1],
+      newer_snapshot: trackedPolicySnapshots[0],
+      diff_blocks: [
+        {
+          change_type: 'removed',
+          older_text: 'Service disputes must be resolved in Colorado.',
+          newer_text: null,
+        },
+        {
+          change_type: 'added',
+          older_text: null,
+          newer_text: 'Service disputes must be resolved in Delaware.',
+        },
+      ],
     });
     let reportListCalls = 0;
     let trackedPolicyListCalls = 0;
@@ -769,6 +904,20 @@ describe('DashboardPage', () => {
         return jsonResponse([updatedTrackedPolicy]);
       }
       if (
+        url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000011/snapshots') &&
+        method === 'GET'
+      ) {
+        return jsonResponse(trackedPolicySnapshots);
+      }
+      if (
+        url.includes(
+          '/tracked-policies/20000000-0000-4000-8000-000000000011/compare?snapshot_a=30000000-0000-4000-8000-000000000011&snapshot_b=30000000-0000-4000-8000-000000000010',
+        ) &&
+        method === 'GET'
+      ) {
+        return jsonResponse(comparisonResponse);
+      }
+      if (
         url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000011/check') &&
         method === 'POST'
       ) {
@@ -793,21 +942,110 @@ describe('DashboardPage', () => {
     await waitFor(() => expect(screen.getByText('Stored version #2')).toBeTruthy());
     expect(screen.getByText(/updated/i)).toBeTruthy();
 
-    await user.click(
-      screen.getByRole('button', {
-        name: /URL https:\/\/concise\.plus\/terms\.php Stored version #2/i,
+    await user.click(screen.getByRole('button', { name: 'View history' }));
+
+    await waitFor(() => expect(screen.getByText('Tracked Version History')).toBeTruthy());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reportListCalls).toBe(2);
+    expect(trackedPolicyListCalls).toBe(2);
+    expect(screen.getAllByText('Stored version #2').length).toBeGreaterThan(0);
+    expect(screen.getByText('Stored version #1')).toBeTruthy();
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(checkboxes[1]);
+    await user.click(screen.getByRole('button', { name: 'Compare selected versions' }));
+
+    await waitFor(() => expect(screen.getByText('Policy Comparison')).toBeTruthy());
+    expect(screen.getAllByText('Older version').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Newer version').length).toBeGreaterThan(0);
+    expect(screen.getByText('Service disputes must be resolved in Colorado.')).toBeTruthy();
+    expect(screen.getByText('Service disputes must be resolved in Delaware.')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Back to history' }));
+    await waitFor(() => expect(screen.getByText('Tracked Version History')).toBeTruthy());
+  });
+
+  it('shows a normalization explanation instead of giant diff blocks when versions are effectively equal', async () => {
+    const trackedPolicy = buildTrackedPolicy({
+      id: '20000000-0000-4000-8000-000000000013',
+      canonical_url: 'https://example.com/legal/terms',
+      display_name: 'Example Terms',
+      snapshot_version_count: 2,
+    });
+    const trackedPolicySnapshots = [
+      buildTrackedPolicySnapshot({
+        snapshot_id: '30000000-0000-4000-8000-000000000013',
+        version_number: 2,
+        captured_at: '2026-03-25T09:00:00Z',
       }),
-    );
+      buildTrackedPolicySnapshot({
+        snapshot_id: '30000000-0000-4000-8000-000000000012',
+        version_number: 1,
+        captured_at: '2026-03-24T09:00:00Z',
+      }),
+    ];
+    const comparisonResponse = buildTrackedPolicyComparison({
+      tracked_policy: trackedPolicy,
+      older_snapshot: trackedPolicySnapshots[1],
+      newer_snapshot: trackedPolicySnapshots[0],
+      diff_blocks: [],
+      comparison_outcome: 'no_meaningful_changes',
+      normalization_notice:
+        'Stored versions were normalized before comparison so scraper and page-chrome noise did not appear as a policy change.',
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        return jsonResponse([]);
+      }
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        return jsonResponse([trackedPolicy]);
+      }
+      if (
+        url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000013/snapshots') &&
+        method === 'GET'
+      ) {
+        return jsonResponse(trackedPolicySnapshots);
+      }
+      if (
+        url.includes(
+          '/tracked-policies/20000000-0000-4000-8000-000000000013/compare?snapshot_a=30000000-0000-4000-8000-000000000013&snapshot_b=30000000-0000-4000-8000-000000000012',
+        ) &&
+        method === 'GET'
+      ) {
+        return jsonResponse(comparisonResponse);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(screen.getByText('Example Terms')).toBeTruthy());
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'View history' }));
+
+    await waitFor(() => expect(screen.getByText('Tracked Version History')).toBeTruthy());
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(checkboxes[1]);
+    await user.click(screen.getByRole('button', { name: 'Compare selected versions' }));
 
     await waitFor(() =>
-      expect(screen.getByText('Updated summary for stored version 2')).toBeTruthy(),
+      expect(
+        screen.getByText('No meaningful differences were found after normalizing the stored versions.'),
+      ).toBeTruthy(),
     );
-    expect(screen.getByText('Tracked Version Comparison')).toBeTruthy();
     expect(
       screen.getByText(
-        'Placeholder: comparison between Stored version #2 and Stored version #1 will appear here in the later version-compare work.',
+        'Stored versions were normalized before comparison so scraper and page-chrome noise did not appear as a policy change.',
       ),
     ).toBeTruthy();
+    expect(screen.queryByText('No text in this block.')).toBeNull();
   });
 
   it('lets the user remove a tracked policy from the watchlist', async () => {

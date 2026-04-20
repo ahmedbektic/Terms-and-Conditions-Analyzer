@@ -103,6 +103,7 @@ class PolicySnapshotCreateInput:
     extraction_strategy: str | None = None
     capture_status: PolicySnapshotStatus = PolicySnapshotStatus.CAPTURED
     capture_error_message: str | None = None
+    normalization_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,7 @@ class StoredPolicySnapshot:
     extractor_name: str | None
     extraction_strategy: str | None
     capture_error_message: str | None
+    normalization_version: int | None = None
 
 
 @dataclass(frozen=True)

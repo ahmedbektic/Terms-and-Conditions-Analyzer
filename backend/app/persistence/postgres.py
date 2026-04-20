@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS policy_snapshots (
   terms_text TEXT NOT NULL,
   raw_text_body TEXT NULL,
   normalized_text_body TEXT NULL,
+  normalization_version INTEGER NULL,
   content_hash TEXT NULL,
   capture_status TEXT NOT NULL DEFAULT 'captured',
   source_url TEXT NULL,
@@ -225,6 +226,9 @@ ALTER TABLE policy_snapshots
 
 ALTER TABLE policy_snapshots
   ADD COLUMN IF NOT EXISTS normalized_text_body TEXT NULL;
+
+ALTER TABLE policy_snapshots
+  ADD COLUMN IF NOT EXISTS normalization_version INTEGER NULL;
 
 ALTER TABLE policy_snapshots
   ADD COLUMN IF NOT EXISTS content_hash TEXT NULL;
@@ -882,6 +886,7 @@ class PostgresPolicySnapshotRepository:
                       tracked_policy_id,
                       COALESCE(raw_text_body, terms_text) AS raw_text_body,
                       COALESCE(normalized_text_body, terms_text) AS normalized_text_body,
+                      normalization_version,
                       content_hash,
                       captured_at,
                       COALESCE(capture_status, 'captured') AS capture_status,
@@ -923,6 +928,7 @@ class PostgresPolicySnapshotRepository:
                       terms_text,
                       raw_text_body,
                       normalized_text_body,
+                      normalization_version,
                       content_hash,
                       capture_status,
                       source_url,
@@ -935,13 +941,14 @@ class PostgresPolicySnapshotRepository:
                       capture_error_message,
                       captured_at
                     ) VALUES (
-                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     RETURNING
                       id,
                       tracked_policy_id,
                       COALESCE(raw_text_body, terms_text) AS raw_text_body,
                       COALESCE(normalized_text_body, terms_text) AS normalized_text_body,
+                      normalization_version,
                       content_hash,
                       captured_at,
                       COALESCE(capture_status, 'captured') AS capture_status,
@@ -960,6 +967,7 @@ class PostgresPolicySnapshotRepository:
                         snapshot.raw_text_body,
                         snapshot.raw_text_body,
                         snapshot.normalized_text_body,
+                        snapshot.normalization_version,
                         content_hash,
                         normalized_status.value,
                         snapshot.source_url,
@@ -995,6 +1003,7 @@ class PostgresPolicySnapshotRepository:
                       tracked_policy_id,
                       COALESCE(raw_text_body, terms_text) AS raw_text_body,
                       COALESCE(normalized_text_body, terms_text) AS normalized_text_body,
+                      normalization_version,
                       content_hash,
                       captured_at,
                       COALESCE(capture_status, 'captured') AS capture_status,
@@ -1030,6 +1039,7 @@ class PostgresPolicySnapshotRepository:
                       tracked_policy_id,
                       COALESCE(raw_text_body, terms_text) AS raw_text_body,
                       COALESCE(normalized_text_body, terms_text) AS normalized_text_body,
+                      normalization_version,
                       content_hash,
                       captured_at,
                       COALESCE(capture_status, 'captured') AS capture_status,
@@ -1302,6 +1312,7 @@ def _policy_snapshot_from_row(row: dict | None) -> StoredPolicySnapshot:
         extractor_name=row.get("extractor_name"),
         extraction_strategy=row.get("extraction_strategy"),
         capture_error_message=row.get("capture_error_message"),
+        normalization_version=row.get("normalization_version"),
     )
 
 

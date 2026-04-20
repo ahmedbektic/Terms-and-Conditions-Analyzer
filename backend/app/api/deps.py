@@ -30,6 +30,7 @@ from ..security import RequestRateLimiter, build_default_rate_limit_policies
 from ..services.request_subject import RequestSubject
 from ..services.submission_preparation import SubmissionPreparationService
 from ..services.tracked_policy_service import TrackedPolicyService
+from ..services.tracked_policy_versions_service import TrackedPolicyVersionsService
 from ..services.web_source import PublicWebSourceInspector
 
 
@@ -172,6 +173,11 @@ _tracked_policy_service = TrackedPolicyService(
     policy_change_event_repository=_policy_change_event_repository,
     public_web_source_inspector=_public_web_source_inspector,
 )
+_tracked_policy_versions_service = TrackedPolicyVersionsService(
+    tracked_policy_repository=_tracked_policy_repository,
+    policy_snapshot_repository=_policy_snapshot_repository,
+    policy_change_event_repository=_policy_change_event_repository,
+)
 
 
 def get_analysis_service() -> AnalysisOrchestrationService:
@@ -184,6 +190,12 @@ def get_tracked_policy_service() -> TrackedPolicyService:
     """Return the singleton tracked-policy service used by request handlers."""
 
     return _tracked_policy_service
+
+
+def get_tracked_policy_versions_service() -> TrackedPolicyVersionsService:
+    """Return the singleton tracked-policy history/compare service."""
+
+    return _tracked_policy_versions_service
 
 
 def get_request_rate_limiter() -> RequestRateLimiter:
