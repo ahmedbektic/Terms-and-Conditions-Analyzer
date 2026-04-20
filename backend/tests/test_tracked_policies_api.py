@@ -10,7 +10,7 @@ from app.api.deps import reset_demo_storage
 from app.auth.subject_resolver import AuthSubjectResolver
 from app.auth.supabase_jwt import SupabaseJwtVerifier
 from app.main import create_app
-from backend.tests.policy_text_samples import (
+from app.test_support_policy_text_samples import (
     LEGACY_NOISY_POLICY_TEXT_AFTER,
     LEGACY_NOISY_POLICY_TEXT_BEFORE,
 )

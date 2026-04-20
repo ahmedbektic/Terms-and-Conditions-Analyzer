@@ -1,4 +1,4 @@
-from backend.tests.policy_text_samples import (
+from app.test_support_policy_text_samples import (
     LEGACY_NOISY_POLICY_TEXT_AFTER,
     LEGACY_NOISY_POLICY_TEXT_BEFORE,
 )
