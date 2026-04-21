@@ -5,12 +5,14 @@ import pytest
 
 from app.repositories.in_memory import (
     InMemoryAgreementRepository,
+    InMemoryPolicyChangeEventRepository,
     InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryStorage,
     InMemoryTrackedPolicyRepository,
 )
 from app.repositories.policy_capture_status import PolicyCaptureStatus
+from app.repositories.policy_change_status import PolicyChangeStatus
 from app.repositories.policy_tracking_status import PolicyTrackingStatus
 from app.repositories.report_capture_kind import ReportContentCaptureKind
 from app.services.ai_provider import DeterministicAnalysisProvider
@@ -191,6 +193,7 @@ def _build_services(
     storage = InMemoryStorage()
     tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
     policy_snapshot_repository = InMemoryPolicySnapshotRepository(storage)
+    policy_change_event_repository = InMemoryPolicyChangeEventRepository(storage)
 
     effective_analysis_service = analysis_service
     if effective_analysis_service is None:
@@ -211,6 +214,7 @@ def _build_services(
             tracked_policy_repository=tracked_policy_repository,
             policy_snapshot_repository=policy_snapshot_repository,
             analysis_service=effective_analysis_service,
+            policy_change_event_repository=policy_change_event_repository,
             public_web_source_inspector=inspector,
         ),
         effective_analysis_service,
@@ -353,6 +357,8 @@ def test_tracked_policy_service_creates_saved_fetched_url_baseline_when_none_exi
     assert enrollment.tracked_policy.last_successful_capture_at == checked_at
     assert enrollment.tracked_policy.latest_capture_status == PolicyCaptureStatus.CAPTURED
     assert enrollment.tracked_policy.latest_capture_message is None
+    assert enrollment.tracked_policy.latest_change_status == PolicyChangeStatus.NOT_EVALUATED
+    assert enrollment.tracked_policy.latest_change_detected_at is None
     assert enrollment.tracked_policy.snapshot_version_count == 1
     assert enrollment.baseline_report.canonical_source_url == "https://example.com/terms?a=1&b=2"
     assert enrollment.baseline_report.content_capture_kind == ReportContentCaptureKind.FETCHED_URL
@@ -393,6 +399,7 @@ def test_tracked_policy_service_reuses_existing_fetched_url_baseline_report() ->
     assert enrollment.tracked_policy.tracking_status == PolicyTrackingStatus.ACTIVE
     assert enrollment.tracked_policy.last_successful_capture_at == checked_at
     assert enrollment.tracked_policy.latest_capture_status == PolicyCaptureStatus.CAPTURED
+    assert enrollment.tracked_policy.latest_change_status == PolicyChangeStatus.NOT_EVALUATED
     assert enrollment.tracked_policy.snapshot_version_count == 1
     reports = analysis_service.list_reports(subject=subject)
     assert len(reports) == 1
@@ -435,6 +442,7 @@ def test_tracked_policy_service_creates_fresh_baseline_when_only_submitted_text_
     assert enrollment.baseline_report_action == "created"
     assert enrollment.baseline_report.id != submitted_text_report.id
     assert enrollment.tracked_policy.latest_capture_status == PolicyCaptureStatus.CAPTURED
+    assert enrollment.tracked_policy.latest_change_status == PolicyChangeStatus.NOT_EVALUATED
     assert enrollment.tracked_policy.snapshot_version_count == 1
     created_baseline_report = next(
         report for report in reports if report.id == enrollment.baseline_report.id
@@ -540,6 +548,7 @@ def test_tracked_policy_service_marks_policy_invalid_source_and_does_not_create_
     assert len(tracked_policies) == 1
     assert tracked_policies[0].tracking_status == PolicyTrackingStatus.INVALID_SOURCE
     assert tracked_policies[0].latest_capture_status == PolicyCaptureStatus.CAPTURE_FAILED
+    assert tracked_policies[0].latest_change_status == PolicyChangeStatus.COMPARISON_INCOMPLETE
     assert "404 not found" in (tracked_policies[0].latest_capture_message or "").lower()
     assert tracked_policies[0].last_successful_capture_at == checked_at
     assert tracked_policies[0].snapshot_version_count == 1
@@ -572,7 +581,8 @@ def test_tracked_policy_check_does_not_create_new_saved_reports() -> None:
 
     assert updated.tracking_status == PolicyTrackingStatus.ACTIVE
     assert updated.latest_capture_status == PolicyCaptureStatus.CAPTURED
-    assert "no policy text changes" in (updated.latest_capture_message or "").lower()
+    assert updated.latest_change_status == PolicyChangeStatus.UNCHANGED
+    assert "no meaningful policy changes" in (updated.latest_capture_message or "").lower()
     assert updated.last_successful_capture_at is not None
     assert updated.snapshot_version_count == 1
     assert len(analysis_service.list_reports(subject=subject)) == 1
@@ -605,7 +615,8 @@ def test_tracked_policy_check_does_not_increment_version_count_when_baseline_sna
     )
 
     assert updated.latest_capture_status == PolicyCaptureStatus.CAPTURED
-    assert "no policy text changes" in (updated.latest_capture_message or "").lower()
+    assert updated.latest_change_status == PolicyChangeStatus.UNCHANGED
+    assert "no meaningful policy changes" in (updated.latest_capture_message or "").lower()
     assert updated.snapshot_version_count == 1
 
 
@@ -637,6 +648,8 @@ def test_tracked_policy_check_creates_saved_report_for_new_snapshot_version() ->
     )
 
     reports = analysis_service.list_reports(subject=subject)
+    assert updated.latest_change_status == PolicyChangeStatus.UPDATED
+    assert updated.latest_change_detected_at is not None
     assert updated.snapshot_version_count == 2
     assert len(reports) == 2
     assert reports[0].tracked_policy_id == enrollment.tracked_policy.id

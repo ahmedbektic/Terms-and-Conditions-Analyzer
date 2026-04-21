@@ -2,17 +2,25 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from ..deps import get_request_subject, get_tracked_policy_service
+from ..deps import (
+    get_request_subject,
+    get_tracked_policy_service,
+    get_tracked_policy_versions_service,
+)
 from ..mappers.tracked_policies import (
     to_tracked_policy_create_response,
     to_tracked_policy_response,
+    to_tracked_policy_snapshot_comparison_response,
+    to_tracked_policy_snapshot_response,
 )
 from ...schemas.tracked_policies import (
     TrackedPolicyCreateRequest,
     TrackedPolicyCreateResponse,
     TrackedPolicyResponse,
+    TrackedPolicySnapshotComparisonResponse,
+    TrackedPolicySnapshotResponse,
 )
 from ...services.request_subject import RequestSubject
 from ...services.tracked_policy_service import (
@@ -22,6 +30,12 @@ from ...services.tracked_policy_service import (
     TrackedPolicyCheckFailedError,
     TrackedPolicyNotFoundError,
     TrackedPolicyService,
+)
+from ...services.tracked_policy_versions_service import (
+    TrackedPolicySnapshotNotFoundError,
+    TrackedPolicyVersionComparisonError,
+    TrackedPolicyVersionNotFoundError,
+    TrackedPolicyVersionsService,
 )
 
 router = APIRouter(prefix="/tracked-policies")
@@ -89,6 +103,61 @@ def check_tracked_policy(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 
     return to_tracked_policy_response(tracked_policy)
+
+
+@router.get(
+    "/{tracked_policy_id}/snapshots",
+    response_model=list[TrackedPolicySnapshotResponse],
+)
+def list_tracked_policy_snapshots(
+    tracked_policy_id: UUID,
+    subject: RequestSubject = Depends(get_request_subject),
+    service: TrackedPolicyVersionsService = Depends(get_tracked_policy_versions_service),
+) -> list[TrackedPolicySnapshotResponse]:
+    """Return stored version history for one tracked policy owned by the caller."""
+
+    try:
+        _, snapshots = service.list_snapshot_history(
+            subject=subject,
+            tracked_policy_id=tracked_policy_id,
+        )
+    except TrackedPolicyVersionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+    return [to_tracked_policy_snapshot_response(snapshot) for snapshot in snapshots]
+
+
+@router.get(
+    "/{tracked_policy_id}/compare",
+    response_model=TrackedPolicySnapshotComparisonResponse,
+)
+def compare_tracked_policy_snapshots(
+    tracked_policy_id: UUID,
+    snapshot_a: UUID = Query(...),
+    snapshot_b: UUID = Query(...),
+    subject: RequestSubject = Depends(get_request_subject),
+    service: TrackedPolicyVersionsService = Depends(get_tracked_policy_versions_service),
+) -> TrackedPolicySnapshotComparisonResponse:
+    """Compare two stored versions from one tracked policy owned by the caller."""
+
+    try:
+        comparison_result = service.compare_snapshots(
+            subject=subject,
+            tracked_policy_id=tracked_policy_id,
+            snapshot_a_id=snapshot_a,
+            snapshot_b_id=snapshot_b,
+        )
+    except TrackedPolicyVersionComparisonError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    except TrackedPolicySnapshotNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except TrackedPolicyVersionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+    return to_tracked_policy_snapshot_comparison_response(comparison_result)
 
 
 @router.delete("/{tracked_policy_id}", status_code=status.HTTP_204_NO_CONTENT)

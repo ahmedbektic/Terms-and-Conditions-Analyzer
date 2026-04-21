@@ -11,15 +11,18 @@ from uuid import UUID
 
 from .analysis_status import AnalysisLifecycleStatus
 from .models import (
+    PolicyChangeEventCreateInput,
     PolicySnapshotAppendResult,
     PolicySnapshotCreateInput,
     StoredAgreement,
     StoredFlaggedClause,
+    StoredPolicyChangeEvent,
     StoredPolicySnapshot,
     StoredReport,
     StoredTrackedPolicy,
 )
 from .policy_capture_status import PolicyCaptureStatus
+from .policy_change_status import PolicyChangeStatus
 from .policy_tracking_status import PolicyTrackingStatus
 from .report_capture_kind import ReportContentCaptureKind
 
@@ -147,6 +150,8 @@ class TrackedPolicyRepository(Protocol):
         tracking_status: PolicyTrackingStatus,
         latest_capture_status: PolicyCaptureStatus,
         latest_capture_message: str | None,
+        latest_change_status: PolicyChangeStatus,
+        latest_change_detected_at: datetime | None,
     ) -> StoredTrackedPolicy | None: ...
 
 
@@ -171,3 +176,28 @@ class PolicySnapshotRepository(Protocol):
         *,
         tracked_policy_id: UUID,
     ) -> list[StoredPolicySnapshot]: ...
+
+    def delete_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        snapshot_id: UUID,
+    ) -> bool: ...
+
+
+class PolicyChangeEventRepository(Protocol):
+    """Persistence operations for tracked-policy change-detection results."""
+
+    def create(self, *, event: PolicyChangeEventCreateInput) -> StoredPolicyChangeEvent: ...
+
+    def get_latest_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> StoredPolicyChangeEvent | None: ...
+
+    def list_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> list[StoredPolicyChangeEvent]: ...

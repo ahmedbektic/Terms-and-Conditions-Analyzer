@@ -69,8 +69,14 @@ jobs:
       - name: Check formatting
         run: black --check backend
 
-      - name: Run tracked snapshot regression test
-        run: pytest backend/tests/test_policy_snapshot_service.py
+      - name: Run tracked policy regression tests
+        run: |
+          pytest backend/tests/test_policy_text_canonicalizer.py
+          pytest backend/tests/test_web_source.py
+          pytest backend/tests/test_policy_snapshot_service.py
+          pytest backend/tests/test_policy_change_detection_service.py
+          pytest backend/tests/test_tracked_policy_versions_service.py
+          pytest backend/tests/test_tracked_policies_api.py
 
       - name: Run backend tests
         run: pytest backend/tests

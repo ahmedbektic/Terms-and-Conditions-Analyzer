@@ -21,8 +21,10 @@ from ..repositories.analysis_status import (
 )
 from ..repositories.errors import ActiveTrackedPolicyConflictError
 from ..repositories.models import (
+    PolicyChangeEventCreateInput,
     PolicySnapshotAppendResult,
     PolicySnapshotCreateInput,
+    StoredPolicyChangeEvent,
     StoredPolicySnapshot,
     StoredAgreement,
     StoredFlaggedClause,
@@ -34,6 +36,10 @@ from ..repositories.policy_capture_status import (
     PolicySnapshotStatus,
     normalize_policy_capture_status,
     normalize_policy_snapshot_status,
+)
+from ..repositories.policy_change_status import (
+    PolicyChangeStatus,
+    normalize_policy_change_status,
 )
 from ..repositories.policy_snapshot_hash import build_policy_snapshot_content_hash
 from ..repositories.policy_tracking_status import (
@@ -134,6 +140,10 @@ CREATE TABLE IF NOT EXISTS tracked_policies (
     latest_capture_status IN ('never_captured', 'captured', 'capture_failed')
   ),
   latest_capture_message TEXT NULL,
+  latest_change_status TEXT NOT NULL DEFAULT 'not_evaluated' CHECK (
+    latest_change_status IN ('not_evaluated', 'unchanged', 'updated', 'comparison_incomplete')
+  ),
+  latest_change_detected_at TIMESTAMPTZ NULL,
   last_checked_at TIMESTAMPTZ NULL,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -144,6 +154,12 @@ ALTER TABLE tracked_policies
 
 ALTER TABLE tracked_policies
   ADD COLUMN IF NOT EXISTS latest_capture_message TEXT NULL;
+
+ALTER TABLE tracked_policies
+  ADD COLUMN IF NOT EXISTS latest_change_status TEXT NOT NULL DEFAULT 'not_evaluated';
+
+ALTER TABLE tracked_policies
+  ADD COLUMN IF NOT EXISTS latest_change_detected_at TIMESTAMPTZ NULL;
 
 DO $$
 BEGIN
@@ -166,12 +182,32 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tracked_policies_owner_url_active
   ON tracked_policies (subject_type, subject_id, canonical_url)
   WHERE active = TRUE;
 
+CREATE TABLE IF NOT EXISTS policy_change_events (
+  id UUID PRIMARY KEY,
+  tracked_policy_id UUID NOT NULL REFERENCES tracked_policies(id) ON DELETE CASCADE,
+  previous_snapshot_id UUID NULL,
+  new_snapshot_id UUID NULL,
+  detected_at TIMESTAMPTZ NOT NULL,
+  change_status TEXT NOT NULL CHECK (
+    change_status IN ('not_evaluated', 'unchanged', 'updated', 'comparison_incomplete')
+  ),
+  detection_method TEXT NOT NULL,
+  content_changed BOOLEAN NULL,
+  previous_section_count INTEGER NULL,
+  new_section_count INTEGER NULL,
+  section_delta INTEGER NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_policy_change_events_policy_detected
+  ON policy_change_events (tracked_policy_id, detected_at DESC);
+
 CREATE TABLE IF NOT EXISTS policy_snapshots (
   id UUID PRIMARY KEY,
   tracked_policy_id UUID NOT NULL REFERENCES tracked_policies(id) ON DELETE CASCADE,
   terms_text TEXT NOT NULL,
   raw_text_body TEXT NULL,
   normalized_text_body TEXT NULL,
+  normalization_version INTEGER NULL,
   content_hash TEXT NULL,
   capture_status TEXT NOT NULL DEFAULT 'captured',
   source_url TEXT NULL,
@@ -190,6 +226,9 @@ ALTER TABLE policy_snapshots
 
 ALTER TABLE policy_snapshots
   ADD COLUMN IF NOT EXISTS normalized_text_body TEXT NULL;
+
+ALTER TABLE policy_snapshots
+  ADD COLUMN IF NOT EXISTS normalization_version INTEGER NULL;
 
 ALTER TABLE policy_snapshots
   ADD COLUMN IF NOT EXISTS content_hash TEXT NULL;
@@ -226,6 +265,34 @@ CREATE INDEX IF NOT EXISTS idx_policy_snapshots_policy_captured
 
 CREATE INDEX IF NOT EXISTS idx_policy_snapshots_policy_hash
   ON policy_snapshots (tracked_policy_id, content_hash, captured_at DESC);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.table_constraints
+    WHERE constraint_name = 'policy_change_events_previous_snapshot_id_fkey'
+      AND table_name = 'policy_change_events'
+  ) THEN
+    ALTER TABLE policy_change_events
+      ADD CONSTRAINT policy_change_events_previous_snapshot_id_fkey
+      FOREIGN KEY (previous_snapshot_id) REFERENCES policy_snapshots(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.table_constraints
+    WHERE constraint_name = 'policy_change_events_new_snapshot_id_fkey'
+      AND table_name = 'policy_change_events'
+  ) THEN
+    ALTER TABLE policy_change_events
+      ADD CONSTRAINT policy_change_events_new_snapshot_id_fkey
+      FOREIGN KEY (new_snapshot_id) REFERENCES policy_snapshots(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 """
 
 
@@ -294,7 +361,7 @@ class PostgresStorage:
         with self.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    "TRUNCATE TABLE policy_snapshots, reports, agreements, tracked_policies;"
+                    "TRUNCATE TABLE policy_change_events, policy_snapshots, reports, agreements, tracked_policies;"
                 )
             conn.commit()
 
@@ -528,6 +595,7 @@ class PostgresReportRepository:
 _TRACKED_POLICY_SELECT_FIELDS = """
       tp.id, tp.subject_type, tp.subject_id, tp.canonical_url, tp.display_name,
       tp.source_type, tp.tracking_status, tp.latest_capture_status, tp.latest_capture_message,
+      tp.latest_change_status, tp.latest_change_detected_at,
       tp.last_checked_at, tp.active, tp.created_at, sc.last_successful_capture_at,
       COALESCE(sc.cnt, 0) AS snapshot_version_count
 """
@@ -579,12 +647,14 @@ class PostgresTrackedPolicyRepository:
                         INSERT INTO tracked_policies (
                           id, subject_type, subject_id, canonical_url, display_name,
                           source_type, tracking_status, latest_capture_status,
-                          latest_capture_message, last_checked_at, active
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          latest_capture_message, latest_change_status,
+                          latest_change_detected_at, last_checked_at, active
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         RETURNING
                           id, subject_type, subject_id, canonical_url, display_name,
                           source_type, tracking_status, latest_capture_status,
-                          latest_capture_message, last_checked_at, active, created_at;
+                          latest_capture_message, latest_change_status,
+                          latest_change_detected_at, last_checked_at, active, created_at;
                         """,
                         (
                             tracked_policy_id,
@@ -595,6 +665,8 @@ class PostgresTrackedPolicyRepository:
                             source_type,
                             normalized_status.value,
                             PolicyCaptureStatus.NEVER_CAPTURED.value,
+                            None,
+                            PolicyChangeStatus.NOT_EVALUATED.value,
                             None,
                             last_checked_at,
                             active,
@@ -680,9 +752,12 @@ class PostgresTrackedPolicyRepository:
         tracking_status: PolicyTrackingStatus,
         latest_capture_status: PolicyCaptureStatus,
         latest_capture_message: str | None,
+        latest_change_status: PolicyChangeStatus,
+        latest_change_detected_at: datetime | None,
     ) -> StoredTrackedPolicy | None:
         normalized_status = normalize_policy_tracking_status(tracking_status)
         normalized_capture_status = normalize_policy_capture_status(latest_capture_status)
+        normalized_change_status = normalize_policy_change_status(latest_change_status)
         with self._storage.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
@@ -691,7 +766,9 @@ class PostgresTrackedPolicyRepository:
                     SET last_checked_at = %s,
                         tracking_status = %s,
                         latest_capture_status = %s,
-                        latest_capture_message = %s
+                        latest_capture_message = %s,
+                        latest_change_status = %s,
+                        latest_change_detected_at = %s
                     WHERE id = %s AND subject_type = %s AND subject_id = %s AND active = TRUE
                     RETURNING id;
                     """,
@@ -700,6 +777,8 @@ class PostgresTrackedPolicyRepository:
                         normalized_status.value,
                         normalized_capture_status.value,
                         latest_capture_message,
+                        normalized_change_status.value,
+                        latest_change_detected_at,
                         tracked_policy_id,
                         subject_type,
                         subject_id,
@@ -739,7 +818,9 @@ class PostgresTrackedPolicyRepository:
                     WHERE id = %s AND subject_type = %s AND subject_id = %s AND active = TRUE
                     RETURNING
                       id, subject_type, subject_id, canonical_url, display_name,
-                      source_type, tracking_status, last_checked_at, active, created_at;
+                      source_type, tracking_status, latest_capture_status,
+                      latest_capture_message, latest_change_status,
+                      latest_change_detected_at, last_checked_at, active, created_at;
                     """,
                     (tracked_policy_id, subject_type, subject_id),
                 )
@@ -805,6 +886,7 @@ class PostgresPolicySnapshotRepository:
                       tracked_policy_id,
                       COALESCE(raw_text_body, terms_text) AS raw_text_body,
                       COALESCE(normalized_text_body, terms_text) AS normalized_text_body,
+                      normalization_version,
                       content_hash,
                       captured_at,
                       COALESCE(capture_status, 'captured') AS capture_status,
@@ -846,6 +928,7 @@ class PostgresPolicySnapshotRepository:
                       terms_text,
                       raw_text_body,
                       normalized_text_body,
+                      normalization_version,
                       content_hash,
                       capture_status,
                       source_url,
@@ -858,13 +941,14 @@ class PostgresPolicySnapshotRepository:
                       capture_error_message,
                       captured_at
                     ) VALUES (
-                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     RETURNING
                       id,
                       tracked_policy_id,
                       COALESCE(raw_text_body, terms_text) AS raw_text_body,
                       COALESCE(normalized_text_body, terms_text) AS normalized_text_body,
+                      normalization_version,
                       content_hash,
                       captured_at,
                       COALESCE(capture_status, 'captured') AS capture_status,
@@ -883,6 +967,7 @@ class PostgresPolicySnapshotRepository:
                         snapshot.raw_text_body,
                         snapshot.raw_text_body,
                         snapshot.normalized_text_body,
+                        snapshot.normalization_version,
                         content_hash,
                         normalized_status.value,
                         snapshot.source_url,
@@ -918,6 +1003,7 @@ class PostgresPolicySnapshotRepository:
                       tracked_policy_id,
                       COALESCE(raw_text_body, terms_text) AS raw_text_body,
                       COALESCE(normalized_text_body, terms_text) AS normalized_text_body,
+                      normalization_version,
                       content_hash,
                       captured_at,
                       COALESCE(capture_status, 'captured') AS capture_status,
@@ -953,6 +1039,7 @@ class PostgresPolicySnapshotRepository:
                       tracked_policy_id,
                       COALESCE(raw_text_body, terms_text) AS raw_text_body,
                       COALESCE(normalized_text_body, terms_text) AS normalized_text_body,
+                      normalization_version,
                       content_hash,
                       captured_at,
                       COALESCE(capture_status, 'captured') AS capture_status,
@@ -972,6 +1059,144 @@ class PostgresPolicySnapshotRepository:
                 )
                 rows = cursor.fetchall()
         return [_policy_snapshot_from_row(row) for row in rows]
+
+    def delete_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        snapshot_id: UUID,
+    ) -> bool:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    DELETE FROM policy_snapshots
+                    WHERE id = %s AND tracked_policy_id = %s;
+                    """,
+                    (snapshot_id, tracked_policy_id),
+                )
+                deleted = cursor.rowcount > 0
+            conn.commit()
+        return deleted
+
+
+class PostgresPolicyChangeEventRepository:
+    """Postgres implementation of tracked-policy change-event persistence."""
+
+    def __init__(self, storage: PostgresStorage) -> None:
+        self._storage = storage
+
+    def create(self, *, event: PolicyChangeEventCreateInput) -> StoredPolicyChangeEvent:
+        event_id = uuid4()
+        normalized_status = normalize_policy_change_status(event.change_status)
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO policy_change_events (
+                      id,
+                      tracked_policy_id,
+                      previous_snapshot_id,
+                      new_snapshot_id,
+                      detected_at,
+                      change_status,
+                      detection_method,
+                      content_changed,
+                      previous_section_count,
+                      new_section_count,
+                      section_delta
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING
+                      id,
+                      tracked_policy_id,
+                      previous_snapshot_id,
+                      new_snapshot_id,
+                      detected_at,
+                      change_status,
+                      detection_method,
+                      content_changed,
+                      previous_section_count,
+                      new_section_count,
+                      section_delta;
+                    """,
+                    (
+                        event_id,
+                        event.tracked_policy_id,
+                        event.previous_snapshot_id,
+                        event.new_snapshot_id,
+                        event.detected_at,
+                        normalized_status.value,
+                        event.detection_method,
+                        event.content_changed,
+                        event.previous_section_count,
+                        event.new_section_count,
+                        event.section_delta,
+                    ),
+                )
+                row = cursor.fetchone()
+            conn.commit()
+        return _policy_change_event_from_row(row)
+
+    def get_latest_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> StoredPolicyChangeEvent | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      id,
+                      tracked_policy_id,
+                      previous_snapshot_id,
+                      new_snapshot_id,
+                      detected_at,
+                      change_status,
+                      detection_method,
+                      content_changed,
+                      previous_section_count,
+                      new_section_count,
+                      section_delta
+                    FROM policy_change_events
+                    WHERE tracked_policy_id = %s
+                    ORDER BY detected_at DESC
+                    LIMIT 1;
+                    """,
+                    (tracked_policy_id,),
+                )
+                row = cursor.fetchone()
+        return _policy_change_event_from_row(row) if row else None
+
+    def list_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+    ) -> list[StoredPolicyChangeEvent]:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      id,
+                      tracked_policy_id,
+                      previous_snapshot_id,
+                      new_snapshot_id,
+                      detected_at,
+                      change_status,
+                      detection_method,
+                      content_changed,
+                      previous_section_count,
+                      new_section_count,
+                      section_delta
+                    FROM policy_change_events
+                    WHERE tracked_policy_id = %s
+                    ORDER BY detected_at DESC;
+                    """,
+                    (tracked_policy_id,),
+                )
+                rows = cursor.fetchall()
+        return [_policy_change_event_from_row(row) for row in rows]
 
 
 def _agreement_from_row(row: dict | None) -> StoredAgreement:
@@ -1051,6 +1276,10 @@ def _tracked_policy_from_row(row: dict | None) -> StoredTrackedPolicy:
             row.get("latest_capture_status", PolicyCaptureStatus.NEVER_CAPTURED.value)
         ),
         latest_capture_message=row.get("latest_capture_message"),
+        latest_change_status=normalize_policy_change_status(
+            row.get("latest_change_status", PolicyChangeStatus.NOT_EVALUATED.value)
+        ),
+        latest_change_detected_at=row.get("latest_change_detected_at"),
         active=row["active"],
         created_at=row["created_at"],
         snapshot_version_count=int(row.get("snapshot_version_count", 0)),
@@ -1083,4 +1312,26 @@ def _policy_snapshot_from_row(row: dict | None) -> StoredPolicySnapshot:
         extractor_name=row.get("extractor_name"),
         extraction_strategy=row.get("extraction_strategy"),
         capture_error_message=row.get("capture_error_message"),
+        normalization_version=row.get("normalization_version"),
+    )
+
+
+def _policy_change_event_from_row(row: dict | None) -> StoredPolicyChangeEvent:
+    """Map a DB row dict to `StoredPolicyChangeEvent`."""
+
+    if row is None:
+        raise ValueError("Policy change event row cannot be None.")
+
+    return StoredPolicyChangeEvent(
+        id=row["id"],
+        tracked_policy_id=row["tracked_policy_id"],
+        previous_snapshot_id=row.get("previous_snapshot_id"),
+        new_snapshot_id=row.get("new_snapshot_id"),
+        detected_at=row["detected_at"],
+        change_status=normalize_policy_change_status(row["change_status"]),
+        detection_method=row["detection_method"],
+        content_changed=row.get("content_changed"),
+        previous_section_count=row.get("previous_section_count"),
+        new_section_count=row.get("new_section_count"),
+        section_delta=row.get("section_delta"),
     )

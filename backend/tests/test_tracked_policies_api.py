@@ -10,19 +10,28 @@ from app.api.deps import reset_demo_storage
 from app.auth.subject_resolver import AuthSubjectResolver
 from app.auth.supabase_jwt import SupabaseJwtVerifier
 from app.main import create_app
+from app.test_support_policy_text_samples import (
+    LEGACY_NOISY_POLICY_TEXT_AFTER,
+    LEGACY_NOISY_POLICY_TEXT_BEFORE,
+)
 from app.repositories.in_memory import (
     InMemoryAgreementRepository,
+    InMemoryPolicyChangeEventRepository,
     InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryStorage,
     InMemoryTrackedPolicyRepository,
 )
+from app.repositories.models import PolicySnapshotCreateInput
+from app.repositories.policy_tracking_status import PolicyTrackingStatus
 from app.services.ai_provider import DeterministicAnalysisProvider
+from app.services.ai_provider import AnalysisProviderInvocationError
 from app.services.analysis_execution import SyncAnalysisExecutionStrategy
 from app.services.analysis_service import AnalysisOrchestrationService, InvalidSubmissionError
 from app.services.request_subject import RequestSubject
 from app.services.submission_preparation import SubmissionPreparationService
 from app.services.tracked_policy_service import TrackedPolicyService
+from app.services.tracked_policy_versions_service import TrackedPolicyVersionsService
 from app.services.web_source import (
     CapturedPolicySnapshotSource,
     CapturedWebSource,
@@ -97,6 +106,7 @@ class _InspectorDouble:
             source_type=self._inspected_source.source_type,
             checked_at=self._inspected_source.last_checked_at,
             captured_text=self._captured_text,
+            normalization_version=2,
         )
 
     def capture_policy_snapshot_source(self, *, canonical_url: str) -> CapturedPolicySnapshotSource:
@@ -120,6 +130,7 @@ class _InspectorDouble:
             fetch_duration_ms=20,
             extractor_name="inspector_double",
             extraction_strategy="stub_capture",
+            normalization_version=2,
         )
 
     def capture_policy_text(self, *, canonical_url: str) -> str:
@@ -161,6 +172,25 @@ class _FailingBaselineAnalysisService:
         )
 
 
+class _TimeoutTrackedSnapshotAnalysisService:
+    def __init__(self, delegate: AnalysisOrchestrationService) -> None:
+        self._delegate = delegate
+
+    def find_latest_eligible_baseline_report(self, **kwargs):
+        return self._delegate.find_latest_eligible_baseline_report(**kwargs)
+
+    def create_report_from_verified_url_capture(self, **kwargs):
+        if kwargs.get("tracked_policy_id") is not None:
+            raise AnalysisProviderInvocationError("Gemini invocation failed (ReadTimeout).")
+        return self._delegate.create_report_from_verified_url_capture(**kwargs)
+
+    def get_report_terms_text(self, **kwargs) -> str:
+        return self._delegate.get_report_terms_text(**kwargs)
+
+    def list_reports(self, **kwargs):
+        return self._delegate.list_reports(**kwargs)
+
+
 def _issue_token(*, sub: str, exp_offset_seconds: int = 3600) -> str:
     payload = {
         "sub": sub,
@@ -188,6 +218,7 @@ def _build_shared_services(
     report_repository = InMemoryReportRepository(storage)
     tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
     policy_snapshot_repository = InMemoryPolicySnapshotRepository(storage)
+    policy_change_event_repository = InMemoryPolicyChangeEventRepository(storage)
     effective_analysis_service = analysis_service or AnalysisOrchestrationService(
         agreement_repository=agreement_repository,
         report_repository=report_repository,
@@ -202,9 +233,20 @@ def _build_shared_services(
         tracked_policy_repository=tracked_policy_repository,
         policy_snapshot_repository=policy_snapshot_repository,
         analysis_service=effective_analysis_service,
+        policy_change_event_repository=policy_change_event_repository,
         public_web_source_inspector=effective_inspector,
     )
     return tracked_policy_service, effective_analysis_service
+
+
+def _build_versions_service(
+    tracked_policy_service: TrackedPolicyService,
+) -> TrackedPolicyVersionsService:
+    return TrackedPolicyVersionsService(
+        tracked_policy_repository=tracked_policy_service._tracked_policy_repository,  # type: ignore[attr-defined]
+        policy_snapshot_repository=tracked_policy_service._policy_snapshot_repository,  # type: ignore[attr-defined]
+        policy_change_event_repository=tracked_policy_service._policy_snapshot_service._policy_change_event_repository,  # type: ignore[attr-defined]
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -267,6 +309,8 @@ def test_authenticated_user_can_create_list_and_delete_tracked_policies_with_sav
     assert created_tracked_policy["last_successful_capture_at"] is not None
     assert created_tracked_policy["latest_capture_status"] == "captured"
     assert created_tracked_policy["latest_capture_message"] is None
+    assert created_tracked_policy["latest_change_status"] == "not_evaluated"
+    assert created_tracked_policy["latest_change_detected_at"] is None
     assert created_tracked_policy["snapshot_version_count"] == 1
     assert created_tracked_policy["baseline_report_action"] == "created"
     assert created_tracked_policy["baseline_report_id"]
@@ -406,6 +450,7 @@ def test_tracked_policy_create_reuses_existing_baseline_report_without_duplicati
     assert create_response.json()["baseline_report_id"] == str(existing_baseline.id)
     assert create_response.json()["tracking_status"] == "active"
     assert create_response.json()["latest_capture_status"] == "captured"
+    assert create_response.json()["latest_change_status"] == "not_evaluated"
     assert create_response.json()["snapshot_version_count"] == 1
 
     report_list_response = client.get("/api/v1/reports", headers=owner_headers)
@@ -540,6 +585,7 @@ def test_tracked_policy_check_returns_actionable_error_and_marks_policy_invalid_
     assert len(tracked_policies) == 1
     assert tracked_policies[0]["tracking_status"] == "invalid_source"
     assert tracked_policies[0]["latest_capture_status"] == "capture_failed"
+    assert tracked_policies[0]["latest_change_status"] == "comparison_incomplete"
     assert "blocking access" in tracked_policies[0]["latest_capture_message"].lower()
     assert tracked_policies[0]["last_successful_capture_at"] is not None
     assert tracked_policies[0]["snapshot_version_count"] == 1
@@ -581,9 +627,11 @@ def test_tracked_policy_check_returns_no_change_message_without_creating_duplica
     )
 
     assert check_response.status_code == 200
+    assert check_response.json()["latest_change_status"] == "unchanged"
     assert check_response.json()["snapshot_version_count"] == 1
     assert (
-        "no policy text changes" in (check_response.json()["latest_capture_message"] or "").lower()
+        "no meaningful policy changes"
+        in (check_response.json()["latest_capture_message"] or "").lower()
     )
 
 
@@ -621,6 +669,8 @@ def test_tracked_policy_check_creates_new_snapshot_when_content_changes(
     )
 
     assert check_response.status_code == 200
+    assert check_response.json()["latest_change_status"] == "updated"
+    assert check_response.json()["latest_change_detected_at"] is not None
     assert check_response.json()["snapshot_version_count"] == 2
     assert check_response.json()["latest_capture_message"] is None
 
@@ -630,3 +680,269 @@ def test_tracked_policy_check_creates_new_snapshot_when_content_changes(
     assert report_list[0]["tracked_policy_id"] == tracked_policy_id
     assert report_list[0]["tracked_policy_snapshot_id"] is not None
     assert report_list[0]["tracked_policy_version_number"] == 2
+
+
+def test_tracked_policy_check_returns_actionable_error_and_does_not_increment_versions_when_report_generation_times_out(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            ),
+            check_captured_texts=[
+                "These updated terms include arbitration, privacy, and mandatory venue clauses."
+            ],
+        )
+    )
+    timeout_analysis_service = _TimeoutTrackedSnapshotAnalysisService(analysis_service)
+    tracked_policy_service = TrackedPolicyService(
+        tracked_policy_repository=tracked_policy_service._tracked_policy_repository,  # type: ignore[attr-defined]
+        policy_snapshot_repository=tracked_policy_service._policy_snapshot_repository,  # type: ignore[attr-defined]
+        analysis_service=timeout_analysis_service,
+        policy_change_event_repository=tracked_policy_service._policy_snapshot_service._policy_change_event_repository,  # type: ignore[attr-defined]
+        public_web_source_inspector=tracked_policy_service._public_web_source_inspector,  # type: ignore[attr-defined]
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(deps, "_analysis_service", timeout_analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+
+    check_response = client.post(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/check",
+        headers=owner_headers,
+    )
+
+    assert check_response.status_code == 422
+    assert "timed out" in check_response.json()["detail"].lower()
+
+    list_response = client.get("/api/v1/tracked-policies", headers=owner_headers)
+    tracked_policies = list_response.json()
+    assert tracked_policies[0]["latest_change_status"] == "comparison_incomplete"
+    assert tracked_policies[0]["latest_capture_status"] == "capture_failed"
+    assert tracked_policies[0]["snapshot_version_count"] == 1
+
+    report_list_response = client.get("/api/v1/reports", headers=owner_headers)
+    assert len(report_list_response.json()) == 1
+
+
+def test_tracked_policy_snapshot_history_returns_versions_newest_first(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            ),
+            check_captured_texts=[
+                "These updated terms include arbitration, privacy, and mandatory venue clauses."
+            ],
+        )
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(
+        deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service)
+    )
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+
+    check_response = client.post(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/check",
+        headers=owner_headers,
+    )
+    assert check_response.status_code == 200
+
+    history_response = client.get(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/snapshots",
+        headers=owner_headers,
+    )
+
+    assert history_response.status_code == 200
+    history = history_response.json()
+    assert [snapshot["version_number"] for snapshot in history] == [2, 1]
+    assert history[0]["change_status"] == "updated"
+    assert history[1]["change_status"] in {None, "not_evaluated"}
+
+
+def test_tracked_policy_compare_returns_older_newer_metadata_and_diff_blocks(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            ),
+            check_captured_texts=[
+                "These updated terms include arbitration, privacy, and mandatory venue clauses."
+            ],
+        )
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(
+        deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service)
+    )
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+
+    client.post(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/check",
+        headers=owner_headers,
+    )
+    history_response = client.get(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/snapshots",
+        headers=owner_headers,
+    )
+    history = history_response.json()
+
+    compare_response = client.get(
+        (
+            f"/api/v1/tracked-policies/{tracked_policy_id}/compare"
+            f"?snapshot_a={history[0]['snapshot_id']}&snapshot_b={history[1]['snapshot_id']}"
+        ),
+        headers=owner_headers,
+    )
+
+    assert compare_response.status_code == 200
+    payload = compare_response.json()
+    assert payload["older_snapshot"]["version_number"] == 1
+    assert payload["newer_snapshot"]["version_number"] == 2
+    assert payload["tracked_policy"]["id"] == tracked_policy_id
+    assert payload["comparison_outcome"] == "meaningful_changes"
+    assert payload["normalization_notice"] is None
+    assert payload["render_mode"] == "split_or_unified"
+    assert {block["change_type"] for block in payload["diff_blocks"]} >= {"added", "removed"}
+
+
+def test_tracked_policy_compare_returns_no_meaningful_changes_for_legacy_noise_only_differences(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracked_policy_service, analysis_service = _build_shared_services()
+    tracked_policy = tracked_policy_service._tracked_policy_repository.create(  # type: ignore[attr-defined]
+        subject_type="supabase_user",
+        subject_id="auth-user-a",
+        canonical_url="https://example.com/terms",
+        display_name="Example Terms",
+        source_type="url",
+        tracking_status=PolicyTrackingStatus.ACTIVE,
+        last_checked_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+        active=True,
+    )
+    older_snapshot = tracked_policy_service._policy_snapshot_repository.append_for_tracked_policy_if_changed(  # type: ignore[attr-defined]
+        tracked_policy_id=tracked_policy.id,
+        snapshot=PolicySnapshotCreateInput(
+            raw_text_body=LEGACY_NOISY_POLICY_TEXT_BEFORE,
+            normalized_text_body=LEGACY_NOISY_POLICY_TEXT_BEFORE,
+            captured_at=datetime(2026, 3, 24, 9, 0, tzinfo=timezone.utc),
+            source_url="https://example.com/terms",
+            final_url="https://example.com/terms",
+        ),
+    ).snapshot
+    newer_snapshot = tracked_policy_service._policy_snapshot_repository.append_for_tracked_policy_if_changed(  # type: ignore[attr-defined]
+        tracked_policy_id=tracked_policy.id,
+        snapshot=PolicySnapshotCreateInput(
+            raw_text_body=LEGACY_NOISY_POLICY_TEXT_AFTER,
+            normalized_text_body=LEGACY_NOISY_POLICY_TEXT_AFTER,
+            captured_at=datetime(2026, 3, 25, 9, 0, tzinfo=timezone.utc),
+            source_url="https://example.com/terms",
+            final_url="https://example.com/terms",
+        ),
+    ).snapshot
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(
+        deps,
+        "_tracked_policy_versions_service",
+        _build_versions_service(tracked_policy_service),
+    )
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    compare_response = client.get(
+        (
+            f"/api/v1/tracked-policies/{tracked_policy.id}/compare"
+            f"?snapshot_a={newer_snapshot.id}&snapshot_b={older_snapshot.id}"
+        ),
+        headers=owner_headers,
+    )
+
+    assert compare_response.status_code == 200
+    payload = compare_response.json()
+    assert payload["comparison_outcome"] == "no_meaningful_changes"
+    assert payload["diff_blocks"] == []
+    assert "normalized before comparison" in (payload["normalization_notice"] or "").lower()
+
+
+def test_tracked_policy_compare_rejects_duplicate_snapshot_ids(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            )
+        )
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(
+        deps, "_tracked_policy_versions_service", _build_versions_service(tracked_policy_service)
+    )
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+    history_response = client.get(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/snapshots",
+        headers=owner_headers,
+    )
+    snapshot_id = history_response.json()[0]["snapshot_id"]
+
+    compare_response = client.get(
+        (
+            f"/api/v1/tracked-policies/{tracked_policy_id}/compare"
+            f"?snapshot_a={snapshot_id}&snapshot_b={snapshot_id}"
+        ),
+        headers=owner_headers,
+    )
+
+    assert compare_response.status_code == 422
+    assert "choose two different" in compare_response.json()["detail"].lower()

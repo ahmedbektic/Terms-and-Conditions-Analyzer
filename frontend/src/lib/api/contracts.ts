@@ -32,6 +32,8 @@ export interface TrackedPolicyResponse {
   last_successful_capture_at: string | null;
   latest_capture_status: string;
   latest_capture_message: string | null;
+  latest_change_status: string;
+  latest_change_detected_at: string | null;
   created_at: string;
   snapshot_version_count: number;
 }
@@ -39,6 +41,32 @@ export interface TrackedPolicyResponse {
 export interface TrackedPolicyCreateResponse extends TrackedPolicyResponse {
   baseline_report_id: string;
   baseline_report_action: 'created' | 'reused';
+}
+
+export interface TrackedPolicySnapshotResponse {
+  snapshot_id: string;
+  version_number: number;
+  captured_at: string;
+  source_url: string | null;
+  final_url: string | null;
+  capture_status: string;
+  change_status: string | null;
+}
+
+export interface TrackedPolicySnapshotCompareBlockResponse {
+  change_type: 'unchanged' | 'added' | 'removed';
+  older_text: string | null;
+  newer_text: string | null;
+}
+
+export interface TrackedPolicySnapshotComparisonResponse {
+  tracked_policy: TrackedPolicyResponse;
+  older_snapshot: TrackedPolicySnapshotResponse;
+  newer_snapshot: TrackedPolicySnapshotResponse;
+  diff_blocks: TrackedPolicySnapshotCompareBlockResponse[];
+  comparison_outcome: 'meaningful_changes' | 'no_meaningful_changes';
+  normalization_notice: string | null;
+  render_mode: 'split_or_unified';
 }
 
 export interface AnalysisTriggerRequest {

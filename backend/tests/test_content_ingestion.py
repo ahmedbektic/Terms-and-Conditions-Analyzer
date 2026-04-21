@@ -91,7 +91,7 @@ def test_ingest_url_submission_fetches_and_extracts_html_text() -> None:
     assert result.source_type == "url"
     assert result.source_value == "https://example.com/terms"
     assert "arbitration" in result.normalized_text.lower()
-    assert result.metadata.extraction_strategy == "url_fetch_html_tag_strip"
+    assert result.metadata.extraction_strategy == "url_fetch_html_dom_canonicalized"
 
 
 def test_ingest_url_submission_falls_back_to_placeholder_when_fetch_fails() -> None:

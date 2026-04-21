@@ -6,13 +6,18 @@ import type {
   ReportListItemResponse,
   ReportResponse,
   TrackedPolicyCreateResponse,
+  TrackedPolicySnapshotComparisonResponse,
+  TrackedPolicySnapshotResponse,
   TrackedPolicyResponse,
 } from '../../lib/api/contracts';
 import type {
   DashboardFlaggedClause,
   DashboardReport,
   DashboardReportListItem,
+  DashboardTrackedPolicyComparison,
+  DashboardTrackedPolicyComparisonBlock,
   DashboardTrackedPolicyEnrollmentResult,
+  DashboardTrackedPolicySnapshot,
   DashboardTrackedPolicy,
 } from './types';
 
@@ -73,6 +78,8 @@ export function mapTrackedPolicy(response: TrackedPolicyResponse): DashboardTrac
     lastSuccessfulCaptureAt: response.last_successful_capture_at,
     latestCaptureStatus: response.latest_capture_status,
     latestCaptureMessage: response.latest_capture_message,
+    latestChangeStatus: response.latest_change_status,
+    latestChangeDetectedAt: response.latest_change_detected_at,
     createdAt: response.created_at,
     snapshotVersionCount: response.snapshot_version_count,
   };
@@ -85,5 +92,43 @@ export function mapTrackedPolicyEnrollmentResult(
     trackedPolicy: mapTrackedPolicy(response),
     baselineReportId: response.baseline_report_id,
     baselineReportAction: response.baseline_report_action,
+  };
+}
+
+export function mapTrackedPolicySnapshot(
+  response: TrackedPolicySnapshotResponse,
+): DashboardTrackedPolicySnapshot {
+  return {
+    snapshotId: response.snapshot_id,
+    versionNumber: response.version_number,
+    capturedAt: response.captured_at,
+    sourceUrl: response.source_url,
+    finalUrl: response.final_url,
+    captureStatus: response.capture_status,
+    changeStatus: response.change_status,
+  };
+}
+
+function mapTrackedPolicyComparisonBlock(
+  response: TrackedPolicySnapshotComparisonResponse['diff_blocks'][number],
+): DashboardTrackedPolicyComparisonBlock {
+  return {
+    changeType: response.change_type,
+    olderText: response.older_text,
+    newerText: response.newer_text,
+  };
+}
+
+export function mapTrackedPolicyComparison(
+  response: TrackedPolicySnapshotComparisonResponse,
+): DashboardTrackedPolicyComparison {
+  return {
+    trackedPolicy: mapTrackedPolicy(response.tracked_policy),
+    olderSnapshot: mapTrackedPolicySnapshot(response.older_snapshot),
+    newerSnapshot: mapTrackedPolicySnapshot(response.newer_snapshot),
+    diffBlocks: response.diff_blocks.map(mapTrackedPolicyComparisonBlock),
+    comparisonOutcome: response.comparison_outcome,
+    normalizationNotice: response.normalization_notice,
+    renderMode: response.render_mode,
   };
 }

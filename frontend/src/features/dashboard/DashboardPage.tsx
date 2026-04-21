@@ -13,6 +13,8 @@ import { AgreementSubmissionForm } from './components/AgreementSubmissionForm';
 import { AnalysisSummaryCard } from './components/AnalysisSummaryCard';
 import { FlaggedClausesList } from './components/FlaggedClausesList';
 import { ReportHistoryList } from './components/ReportHistoryList';
+import { TrackedPolicyComparePanel } from './components/TrackedPolicyComparePanel';
+import { TrackedPolicyHistoryPanel } from './components/TrackedPolicyHistoryPanel';
 import { TrackedPolicyWatchlistPanel } from './components/TrackedPolicyWatchlistPanel';
 import { useDashboardReports } from './hooks/useDashboardReports';
 import { useTrackedPolicies } from './hooks/useTrackedPolicies';
@@ -52,12 +54,23 @@ export function DashboardPage({
     isCreatingTrackedPolicy,
     checkingTrackedPolicyId,
     removingTrackedPolicyId,
+    selectedTrackedPolicy,
+    trackedPolicySnapshots,
+    selectedSnapshotIds,
+    trackedPolicyComparison,
+    isLoadingTrackedPolicySnapshots,
+    isLoadingTrackedPolicyComparison,
     errorMessage: trackedPolicyErrorMessage,
     successMessage: trackedPolicySuccessMessage,
     loadTrackedPolicies,
     createTrackedPolicy,
     checkTrackedPolicy,
     removeTrackedPolicy,
+    openTrackedPolicyHistory,
+    closeTrackedPolicyHistory,
+    toggleTrackedPolicySnapshotSelection,
+    compareSelectedTrackedPolicySnapshots,
+    returnToTrackedPolicyHistory,
     clearMessages: clearTrackedPolicyMessages,
   } = useTrackedPolicies(effectiveApiClient);
 
@@ -167,6 +180,7 @@ export function DashboardPage({
             onCreateTrackedPolicy={handleCreateTrackedPolicy}
             onCheckTrackedPolicy={handleCheckTrackedPolicy}
             onRemoveTrackedPolicy={removeTrackedPolicy}
+            onViewHistory={openTrackedPolicyHistory}
           />
           <ReportHistoryList
             reports={reportHistory}
@@ -176,8 +190,30 @@ export function DashboardPage({
           />
         </div>
         <div className="dashboard-column dashboard-column-analysis">
-          <AnalysisSummaryCard report={selectedReport} isLoadingReport={isLoadingReport} />
-          <FlaggedClausesList report={selectedReport} />
+          {trackedPolicyComparison ? (
+            <TrackedPolicyComparePanel
+              comparison={trackedPolicyComparison}
+              isLoading={isLoadingTrackedPolicyComparison}
+              onBack={returnToTrackedPolicyHistory}
+              onClose={closeTrackedPolicyHistory}
+            />
+          ) : selectedTrackedPolicy ? (
+            <TrackedPolicyHistoryPanel
+              trackedPolicy={selectedTrackedPolicy}
+              snapshots={trackedPolicySnapshots}
+              selectedSnapshotIds={selectedSnapshotIds}
+              isLoading={isLoadingTrackedPolicySnapshots}
+              isComparing={isLoadingTrackedPolicyComparison}
+              onToggleSnapshot={toggleTrackedPolicySnapshotSelection}
+              onCompare={compareSelectedTrackedPolicySnapshots}
+              onClose={closeTrackedPolicyHistory}
+            />
+          ) : (
+            <>
+              <AnalysisSummaryCard report={selectedReport} isLoadingReport={isLoadingReport} />
+              <FlaggedClausesList report={selectedReport} />
+            </>
+          )}
         </div>
       </section>
     </main>

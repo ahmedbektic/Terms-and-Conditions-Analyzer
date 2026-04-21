@@ -14,11 +14,33 @@ interface TrackedPolicyWatchlistPanelProps {
   onCreateTrackedPolicy: (sourceUrl: string) => Promise<void>;
   onCheckTrackedPolicy: (trackedPolicyId: string) => Promise<void>;
   onRemoveTrackedPolicy: (trackedPolicyId: string) => Promise<void>;
+  onViewHistory: (trackedPolicy: DashboardTrackedPolicy) => Promise<void> | void;
 }
 
 interface WatchlistStatusNote {
   message: string;
   toneClassName: string;
+}
+
+function getChangeStatusChipClassName(changeStatus: string): string {
+  const normalizedStatus = changeStatus.toLowerCase();
+  if (normalizedStatus === 'updated') {
+    return 'change-status-updated';
+  }
+  if (normalizedStatus === 'unchanged') {
+    return 'change-status-unchanged';
+  }
+  if (normalizedStatus === 'comparison_incomplete') {
+    return 'change-status-incomplete';
+  }
+  return 'change-status-default';
+}
+
+function formatChangeStatusLabel(changeStatus: string): string {
+  if (changeStatus === 'comparison_incomplete') {
+    return 'Scan incomplete';
+  }
+  return changeStatus.replace(/_/g, ' ');
 }
 
 function getTrackingStatusChipClassName(trackingStatus: string): string {
@@ -108,6 +130,7 @@ export function TrackedPolicyWatchlistPanel({
   onCreateTrackedPolicy,
   onCheckTrackedPolicy,
   onRemoveTrackedPolicy,
+  onViewHistory,
 }: TrackedPolicyWatchlistPanelProps) {
   const [sourceUrl, setSourceUrl] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -192,6 +215,19 @@ export function TrackedPolicyWatchlistPanel({
                       ? formatDashboardDate(trackedPolicy.lastSuccessfulCaptureAt)
                       : 'Not yet'}
                   </span>
+                  <span className="watchlist-meta">
+                    Last detected change:{' '}
+                    {trackedPolicy.latestChangeDetectedAt
+                      ? formatDashboardDate(trackedPolicy.latestChangeDetectedAt)
+                      : 'Not yet'}
+                  </span>
+                  <span
+                    className={`chip watchlist-change-chip ${getChangeStatusChipClassName(
+                      trackedPolicy.latestChangeStatus,
+                    )}`}
+                  >
+                    {formatChangeStatusLabel(trackedPolicy.latestChangeStatus)}
+                  </span>
                   {statusNote ? (
                     <span className={`watchlist-note ${statusNote.toneClassName}`}>
                       {statusNote.message}
@@ -207,6 +243,17 @@ export function TrackedPolicyWatchlistPanel({
                 </span>
               </div>
               <div className="watchlist-row-actions">
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => void onViewHistory(trackedPolicy)}
+                  disabled={
+                    checkingTrackedPolicyId === trackedPolicy.id ||
+                    removingTrackedPolicyId === trackedPolicy.id
+                  }
+                >
+                  View history
+                </button>
                 <button
                   type="button"
                   className="button-secondary"

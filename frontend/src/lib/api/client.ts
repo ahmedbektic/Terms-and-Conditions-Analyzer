@@ -13,6 +13,8 @@ import type {
   ReportResponse,
   TrackedPolicyCreateResponse,
   TrackedPolicyCreateRequest,
+  TrackedPolicySnapshotComparisonResponse,
+  TrackedPolicySnapshotResponse,
   TrackedPolicyResponse,
 } from './contracts';
 import {
@@ -114,6 +116,25 @@ export class DashboardApiClient {
       {
         method: 'DELETE',
       },
+    );
+  }
+
+  async listTrackedPolicySnapshots(trackedPolicyId: string): Promise<TrackedPolicySnapshotResponse[]> {
+    return this.request<TrackedPolicySnapshotResponse[]>(
+      `/tracked-policies/${validateUuid(trackedPolicyId, 'Tracked policy id')}/snapshots`,
+    );
+  }
+
+  async compareTrackedPolicySnapshots(
+    trackedPolicyId: string,
+    snapshotAId: string,
+    snapshotBId: string,
+  ): Promise<TrackedPolicySnapshotComparisonResponse> {
+    const trackedPolicy = validateUuid(trackedPolicyId, 'Tracked policy id');
+    const snapshotA = validateUuid(snapshotAId, 'Snapshot A id');
+    const snapshotB = validateUuid(snapshotBId, 'Snapshot B id');
+    return this.request<TrackedPolicySnapshotComparisonResponse>(
+      `/tracked-policies/${trackedPolicy}/compare?snapshot_a=${snapshotA}&snapshot_b=${snapshotB}`,
     );
   }
 

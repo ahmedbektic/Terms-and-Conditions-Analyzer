@@ -4,3 +4,4 @@ psycopg[binary]
 python-dotenv
 httpx
 PyJWT[crypto]
+beautifulsoup4
