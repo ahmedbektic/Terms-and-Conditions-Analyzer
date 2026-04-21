@@ -47,3 +47,11 @@ def test_before_send_transaction_drops_health_noise() -> None:
     }
 
     assert sentry_config._before_send_transaction(event, {}) is None
+
+
+def test_before_send_ignores_missing_event_payload() -> None:
+    assert sentry_config._before_send(None, {}) is None
+
+
+def test_before_send_transaction_ignores_missing_event_payload() -> None:
+    assert sentry_config._before_send_transaction(None, {}) is None

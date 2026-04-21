@@ -97,10 +97,13 @@ def init_sentry(*, settings: Settings) -> bool:
     return True
 
 
-def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
+def _before_send(event: Any, hint: dict[str, Any]) -> dict[str, Any] | None:
     """Filter low-value events and scrub request details before sending."""
 
     _ = hint
+    if not isinstance(event, MutableMapping):
+        return None
+
     if _is_noise_event(event):
         return None
 
@@ -110,10 +113,13 @@ def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] 
     return event
 
 
-def _before_send_transaction(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
+def _before_send_transaction(event: Any, hint: dict[str, Any]) -> dict[str, Any] | None:
     """Drop noisy transactions such as health checks."""
 
     _ = hint
+    if not isinstance(event, MutableMapping):
+        return None
+
     if _is_noise_event(event):
         return None
     _apply_common_tags(event)
@@ -121,7 +127,10 @@ def _before_send_transaction(event: dict[str, Any], hint: dict[str, Any]) -> dic
     return event
 
 
-def _is_noise_event(event: Mapping[str, Any]) -> bool:
+def _is_noise_event(event: object) -> bool:
+    if not isinstance(event, Mapping):
+        return False
+
     transaction_name = str(event.get("transaction") or "").strip()
     if transaction_name in _NOISE_PATHS or transaction_name.endswith("/health"):
         return True
