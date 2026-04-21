@@ -261,7 +261,9 @@ class SimpleFetchedContentExtractor:
             r"related|sidebar|search|cta|contact|callback|quote|menu)\b"
         )
         for tag in soup.find_all(True):
-            if (BeautifulSoupTag is not None and not isinstance(tag, BeautifulSoupTag)) or getattr(tag, "attrs", None) is None:
+            if (BeautifulSoupTag is not None and not isinstance(tag, BeautifulSoupTag)) or getattr(
+                tag, "attrs", None
+            ) is None:
                 continue
             tag_attributes = " ".join(
                 str(item)
