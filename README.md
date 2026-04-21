@@ -188,6 +188,7 @@ Render + Cloudflare Workers deployment is wired around:
 - `frontend/.env.production.example` for production env reference values
 
 Use `docs/render-cloudflare-deploy.md` for the exact setup steps, required environment variables, and verification flow.
+Use `docs/scrum-93-sentry-observability.md` for the current Sentry-specific config, smoke checks, scope boundaries, and regression test plan.
 
 ## Browser Extension Local Runtime Testing (SCRUM-9)
 
@@ -341,3 +342,4 @@ For dashboard feature flow and extension seams, see `docs/dashboard-analysis-han
 For auth boundaries and ownership semantics, see `docs/auth-architecture-scrum11.md`.
 For SCRUM-9 extension implementation status and explicit unfinished areas, see `docs/scrum-9-handoff-post-implementation.md`.
 For Google provider enablement and redirect setup across web + extension, see `docs/google-auth-setup-matrix.md`.
+For SCRUM-93 Sentry setup, verification hooks, scope boundaries, and recommended regression coverage, see `docs/scrum-93-sentry-observability.md`.

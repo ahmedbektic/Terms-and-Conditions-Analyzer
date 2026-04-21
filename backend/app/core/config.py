@@ -34,6 +34,7 @@ class Settings:
     """Typed access to backend environment variables."""
 
     app_env: str = os.getenv("APP_ENV", "development")
+    observability_enable_test_routes: bool = _env_bool("OBSERVABILITY_ENABLE_TEST_ROUTES", "false")
     sentry_dsn: str = os.getenv("SENTRY_DSN", "")
     sentry_environment: str = os.getenv("SENTRY_ENVIRONMENT", "")
     sentry_release: str = os.getenv("SENTRY_RELEASE", "")
