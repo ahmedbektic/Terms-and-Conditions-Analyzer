@@ -24,8 +24,10 @@ import httpx
 
 try:
     from bs4 import BeautifulSoup
+    from bs4 import Tag as BeautifulSoupTag
 except ImportError:  # pragma: no cover - exercised only before dependencies are installed
     BeautifulSoup = None  # type: ignore[assignment]
+    BeautifulSoupTag = None  # type: ignore[assignment]
 
 from ..core.input_validation import normalize_untrusted_text, validate_external_source_url
 from .policy_text_canonicalizer import PolicyTextCanonicalizer
@@ -259,6 +261,8 @@ class SimpleFetchedContentExtractor:
             r"related|sidebar|search|cta|contact|callback|quote|menu)\b"
         )
         for tag in soup.find_all(True):
+            if (BeautifulSoupTag is not None and not isinstance(tag, BeautifulSoupTag)) or getattr(tag, "attrs", None) is None:
+                continue
             tag_attributes = " ".join(
                 str(item)
                 for item in (
