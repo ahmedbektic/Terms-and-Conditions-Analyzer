@@ -41,6 +41,10 @@ describe('Cloudflare edge worker proxy', () => {
     const fetchMock = vi.fn(async (request: Request) => {
       expect(request.url).toBe('https://terms-api.onrender.com/api/v1/reports');
       expect(request.headers.get('authorization')).toBe('Bearer test-token');
+      expect(request.headers.get('sentry-trace')).toBe(
+        '0123456789abcdef0123456789abcdef-0123456789abcdef-1',
+      );
+      expect(request.headers.get('baggage')).toBe('sentry-environment=production');
       expect(request.headers.get('cf-connecting-ip')).toBe('198.51.100.45');
       expect(request.headers.get('x-real-ip')).toBe('198.51.100.45');
       expect(request.headers.get('x-forwarded-host')).toBe('terms.example.workers.dev');
@@ -56,6 +60,8 @@ describe('Cloudflare edge worker proxy', () => {
         method: 'POST',
         headers: {
           Authorization: 'Bearer test-token',
+          'sentry-trace': '0123456789abcdef0123456789abcdef-0123456789abcdef-1',
+          baggage: 'sentry-environment=production',
           'CF-Connecting-IP': '198.51.100.45',
           'Content-Type': 'application/json',
         },

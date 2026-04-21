@@ -5,3 +5,4 @@ python-dotenv
 httpx
 PyJWT[crypto]
 beautifulsoup4
+sentry-sdk[fastapi]
