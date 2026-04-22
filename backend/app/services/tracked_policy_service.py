@@ -50,6 +50,7 @@ from .policy_snapshot_service import (
 )
 from .request_subject import RequestSubject
 from .tracked_policy_check_execution_service import (
+    TrackedPolicyNotFoundError as CheckExecutionTrackedPolicyNotFoundError,
     TrackedPolicyCheckExecutionResult,
     TrackedPolicyCheckExecutionService,
 )
@@ -263,10 +264,13 @@ class TrackedPolicyService:
         # Note: In future PRs, this synchronously returns an execution object instead of the policy.
         # For now, we still return the resulting tracked policy to keep the API stable,
         # but we drive it entirely through the execution deduplication seam.
-        result = self._check_execution_service.execute_check(
-            subject=subject,
-            tracked_policy_id=tracked_policy_id,
-        )
+        try:
+            result = self._check_execution_service.execute_check(
+                subject=subject,
+                tracked_policy_id=tracked_policy_id,
+            )
+        except CheckExecutionTrackedPolicyNotFoundError as error:
+            raise TrackedPolicyNotFoundError(str(error)) from error
         if (
             result.tracked_policy is None
             and result.execution.status != TrackedPolicyCheckExecutionStatus.PENDING

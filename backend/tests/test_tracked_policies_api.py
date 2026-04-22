@@ -1019,3 +1019,21 @@ def test_tracked_policy_execution_status_returns_404_for_unknown_execution(
         status_response.json()["detail"]
         == f"Tracked policy check execution {execution_id} was not found."
     )
+
+
+def test_tracked_policy_check_returns_404_for_unknown_tracked_policy(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracked_policy_service, analysis_service = _build_shared_services()
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+    tracked_policy_id = uuid4()
+
+    check_response = client.post(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/check",
+        headers=owner_headers,
+    )
+
+    assert check_response.status_code == 404
+    assert check_response.json()["detail"] == f"Tracked policy {tracked_policy_id} was not found."

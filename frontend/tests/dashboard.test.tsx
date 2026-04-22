@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -145,6 +145,7 @@ function buildTrackedPolicyComparison(
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   window.localStorage.clear();
 });
@@ -1297,5 +1298,80 @@ describe('DashboardPage', () => {
       { timeout: 4000 },
     );
     expect(screen.getByText('2 stored versions')).toBeTruthy();
+  });
+
+  it('stops polling and shows an error when execution never reaches a terminal state', async () => {
+    vi.useFakeTimers();
+
+    const trackedPolicyId = '20000000-0000-4000-8000-000000000101';
+    const executionId = '50000000-0000-4000-8000-000000000101';
+    const trackedPolicy = buildTrackedPolicy({
+      id: trackedPolicyId,
+      display_name: 'Stuck Execution Terms',
+    });
+    let executionPollCount = 0;
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        return jsonResponse([]);
+      }
+
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        return jsonResponse([trackedPolicy]);
+      }
+
+      if (url.endsWith(`/tracked-policies/${trackedPolicyId}/check`) && method === 'POST') {
+        return jsonResponse({
+          execution: {
+            id: executionId,
+            tracked_policy_id: trackedPolicyId,
+            status: 'running',
+            result_snapshot_created: null,
+            failure_message: null,
+            execute_started_at: '2026-03-25T09:00:00Z',
+            execute_finished_at: null,
+          },
+          tracked_policy: trackedPolicy,
+        });
+      }
+
+      if (url.endsWith(`/executions/${executionId}`) && method === 'GET') {
+        executionPollCount += 1;
+        return jsonResponse({
+          id: executionId,
+          tracked_policy_id: trackedPolicyId,
+          status: 'running',
+          result_snapshot_created: null,
+          failure_message: null,
+          execute_started_at: '2026-03-25T09:00:00Z',
+          execute_finished_at: null,
+        });
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Stuck Execution Terms')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(
+      screen.getByText('Policy check is taking longer than expected. Please refresh and try again.'),
+    ).toBeTruthy();
+    expect(executionPollCount).toBe(30);
   });
 });

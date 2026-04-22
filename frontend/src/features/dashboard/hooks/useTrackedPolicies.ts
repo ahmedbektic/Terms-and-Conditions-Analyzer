@@ -19,6 +19,11 @@ import type {
   DashboardTrackedPolicySnapshot,
 } from '../types';
 
+const EXECUTION_POLL_INTERVAL_MS = 2000;
+const EXECUTION_POLL_MAX_ATTEMPTS = 30;
+const EXECUTION_POLL_TIMEOUT_MESSAGE =
+  'Policy check is taking longer than expected. Please refresh and try again.';
+
 interface UseTrackedPoliciesResult {
   trackedPolicies: DashboardTrackedPolicy[];
   isLoadingTrackedPolicies: boolean;
@@ -136,9 +141,14 @@ export function useTrackedPolicies(apiClient: DashboardApiClient): UseTrackedPol
       try {
         const envelope = await apiClient.checkTrackedPolicy(trackedPolicyId);
         let execution = envelope.execution;
-        
+        let pollAttemptsRemaining = EXECUTION_POLL_MAX_ATTEMPTS;
+
         while (execution.status === 'pending' || execution.status === 'running') {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          if (pollAttemptsRemaining <= 0) {
+            throw new Error(EXECUTION_POLL_TIMEOUT_MESSAGE);
+          }
+          pollAttemptsRemaining -= 1;
+          await new Promise((resolve) => setTimeout(resolve, EXECUTION_POLL_INTERVAL_MS));
           execution = await apiClient.getTrackedPolicyExecution(execution.id);
         }
 
