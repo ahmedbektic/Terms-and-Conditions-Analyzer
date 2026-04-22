@@ -20,6 +20,7 @@ from app.repositories.in_memory import (
     InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryStorage,
+    InMemoryTrackedPolicyCheckExecutionRepository,
     InMemoryTrackedPolicyRepository,
 )
 from app.repositories.models import PolicySnapshotCreateInput
@@ -217,6 +218,7 @@ def _build_shared_services(
     agreement_repository = InMemoryAgreementRepository(storage)
     report_repository = InMemoryReportRepository(storage)
     tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
+    check_execution_repository = InMemoryTrackedPolicyCheckExecutionRepository(storage)
     policy_snapshot_repository = InMemoryPolicySnapshotRepository(storage)
     policy_change_event_repository = InMemoryPolicyChangeEventRepository(storage)
     effective_analysis_service = analysis_service or AnalysisOrchestrationService(
@@ -232,6 +234,7 @@ def _build_shared_services(
     tracked_policy_service = TrackedPolicyService(
         tracked_policy_repository=tracked_policy_repository,
         policy_snapshot_repository=policy_snapshot_repository,
+        check_execution_repository=check_execution_repository,
         analysis_service=effective_analysis_service,
         policy_change_event_repository=policy_change_event_repository,
         public_web_source_inspector=effective_inspector,
@@ -575,8 +578,9 @@ def test_tracked_policy_check_returns_actionable_error_and_marks_policy_invalid_
         headers=owner_headers,
     )
 
-    assert check_response.status_code == 422
-    message = check_response.json()["detail"].lower()
+    assert check_response.status_code == 200
+    assert check_response.json()["execution"]["status"] == "failed"
+    message = check_response.json()["execution"]["failure_message"].lower()
     assert "blocking access" in message
     assert "does not require sign-in" in message
 
@@ -627,11 +631,13 @@ def test_tracked_policy_check_returns_no_change_message_without_creating_duplica
     )
 
     assert check_response.status_code == 200
-    assert check_response.json()["latest_change_status"] == "unchanged"
-    assert check_response.json()["snapshot_version_count"] == 1
+    assert check_response.json()["execution"]["status"] == "succeeded"
+    tracked_policy = check_response.json()["tracked_policy"]
+    assert tracked_policy["latest_change_status"] == "unchanged"
+    assert tracked_policy["snapshot_version_count"] == 1
     assert (
         "no meaningful policy changes"
-        in (check_response.json()["latest_capture_message"] or "").lower()
+        in (tracked_policy["latest_capture_message"] or "").lower()
     )
 
 
@@ -669,10 +675,12 @@ def test_tracked_policy_check_creates_new_snapshot_when_content_changes(
     )
 
     assert check_response.status_code == 200
-    assert check_response.json()["latest_change_status"] == "updated"
-    assert check_response.json()["latest_change_detected_at"] is not None
-    assert check_response.json()["snapshot_version_count"] == 2
-    assert check_response.json()["latest_capture_message"] is None
+    assert check_response.json()["execution"]["status"] == "succeeded"
+    tracked_policy = check_response.json()["tracked_policy"]
+    assert tracked_policy["latest_change_status"] == "updated"
+    assert tracked_policy["latest_change_detected_at"] is not None
+    assert tracked_policy["snapshot_version_count"] == 2
+    assert tracked_policy["latest_capture_message"] is None
 
     report_list_response = client.get("/api/v1/reports", headers=owner_headers)
     report_list = report_list_response.json()
@@ -702,6 +710,7 @@ def test_tracked_policy_check_returns_actionable_error_and_does_not_increment_ve
     timeout_analysis_service = _TimeoutTrackedSnapshotAnalysisService(analysis_service)
     tracked_policy_service = TrackedPolicyService(
         tracked_policy_repository=tracked_policy_service._tracked_policy_repository,  # type: ignore[attr-defined]
+        check_execution_repository=tracked_policy_service._check_execution_service._check_execution_repository,  # type: ignore[attr-defined]
         policy_snapshot_repository=tracked_policy_service._policy_snapshot_repository,  # type: ignore[attr-defined]
         analysis_service=timeout_analysis_service,
         policy_change_event_repository=tracked_policy_service._policy_snapshot_service._policy_change_event_repository,  # type: ignore[attr-defined]
@@ -723,8 +732,9 @@ def test_tracked_policy_check_returns_actionable_error_and_does_not_increment_ve
         headers=owner_headers,
     )
 
-    assert check_response.status_code == 422
-    assert "timed out" in check_response.json()["detail"].lower()
+    assert check_response.status_code == 200
+    assert check_response.json()["execution"]["status"] == "timed_out"
+    assert "timed out" in check_response.json()["execution"]["failure_message"].lower()
 
     list_response = client.get("/api/v1/tracked-policies", headers=owner_headers)
     tracked_policies = list_response.json()
@@ -946,3 +956,45 @@ def test_tracked_policy_compare_rejects_duplicate_snapshot_ids(
 
     assert compare_response.status_code == 422
     assert "choose two different" in compare_response.json()["detail"].lower()
+
+
+def test_tracked_policy_execution_status_returns_execution_record(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    tracked_policy_service, analysis_service = _build_shared_services(
+        inspector=_InspectorDouble(
+            InspectedWebSource(
+                canonical_url="https://example.com/terms",
+                display_name="Example Terms",
+                source_type="url",
+                last_checked_at=checked_at,
+            )
+        )
+    )
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+
+    create_response = client.post(
+        "/api/v1/tracked-policies",
+        json={"source_url": "https://example.com/terms"},
+        headers=owner_headers,
+    )
+    tracked_policy_id = create_response.json()["id"]
+
+    check_response = client.post(
+        f"/api/v1/tracked-policies/{tracked_policy_id}/check",
+        headers=owner_headers,
+    )
+    execution_id = check_response.json()["execution"]["id"]
+
+    status_response = client.get(
+        f"/api/v1/tracked-policies/executions/{execution_id}",
+        headers=owner_headers,
+    )
+
+    assert status_response.status_code == 200
+    assert status_response.json()["id"] == execution_id
+    assert status_response.json()["status"] == "succeeded"
+    assert status_response.json()["tracked_policy_id"] == tracked_policy_id

@@ -43,6 +43,21 @@ export interface TrackedPolicyCreateResponse extends TrackedPolicyResponse {
   baseline_report_action: 'created' | 'reused';
 }
 
+export interface TrackedPolicyCheckExecutionResponse {
+  id: string;
+  tracked_policy_id: string;
+  status: string; // 'pending' | 'running' | 'succeeded' | 'failed' | 'timed_out'
+  result_snapshot_created: boolean | null;
+  failure_message: string | null;
+  execute_started_at: string | null;
+  execute_finished_at: string | null;
+}
+
+export interface TrackedPolicyCheckExecutionEnvelope {
+  execution: TrackedPolicyCheckExecutionResponse;
+  tracked_policy: TrackedPolicyResponse | null;
+}
+
 export interface TrackedPolicySnapshotResponse {
   snapshot_id: string;
   version_number: number;

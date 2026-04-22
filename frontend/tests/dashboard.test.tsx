@@ -196,7 +196,7 @@ describe('DashboardPage', () => {
   });
 
   it('shows loading and empty states while report history is fetched', async () => {
-    let resolveRequest: ((response: Response) => void) | null = null;
+    let resolveRequest!: (value: Response) => void;
     const pending = new Promise<Response>((resolve) => {
       resolveRequest = resolve;
     });
@@ -217,7 +217,7 @@ describe('DashboardPage', () => {
     render(<DashboardPage />);
     expect(screen.getByText('Loading report history...')).toBeTruthy();
 
-    resolveRequest?.(jsonResponse([]));
+    resolveRequest(jsonResponse([]));
 
     await waitFor(() =>
       expect(screen.getByText('No reports yet. Submit a terms agreement to create one.')).toBeTruthy(),
@@ -642,13 +642,18 @@ describe('DashboardPage', () => {
         url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000003/check') &&
         method === 'POST'
       ) {
-        return jsonResponse(
-          {
-            detail:
-              'That policy page is blocking access. Use a public terms or privacy page that does not require sign-in.',
+        return jsonResponse({
+          execution: {
+            id: '50000000-0000-4000-8000-000000000003',
+            tracked_policy_id: '20000000-0000-4000-8000-000000000003',
+            status: 'failed',
+            result_snapshot_created: false,
+            failure_message: 'That policy page is blocking access. Use a public terms or privacy page that does not require sign-in.',
+            execute_started_at: '2026-03-24T15:30:00Z',
+            execute_finished_at: '2026-03-24T15:30:01Z',
           },
-          422,
-        );
+          tracked_policy: failedTrackedPolicy,
+        });
       }
       throw new Error(`Unexpected request: ${method} ${url}`);
     });
@@ -716,7 +721,18 @@ describe('DashboardPage', () => {
         url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000005/check') &&
         method === 'POST'
       ) {
-        return jsonResponse(unchangedTrackedPolicy);
+        return jsonResponse({
+          execution: {
+            id: '50000000-0000-4000-8000-000000000005',
+            tracked_policy_id: '20000000-0000-4000-8000-000000000005',
+            status: 'succeeded',
+            result_snapshot_created: false,
+            failure_message: null,
+            execute_started_at: '2026-03-24T15:30:00Z',
+            execute_finished_at: '2026-03-24T15:30:01Z',
+          },
+          tracked_policy: unchangedTrackedPolicy,
+        });
       }
       throw new Error(`Unexpected request: ${method} ${url}`);
     });
@@ -921,7 +937,18 @@ describe('DashboardPage', () => {
         url.endsWith('/tracked-policies/20000000-0000-4000-8000-000000000011/check') &&
         method === 'POST'
       ) {
-        return jsonResponse(updatedTrackedPolicy);
+        return jsonResponse({
+          execution: {
+            id: '50000000-0000-4000-8000-000000000011',
+            tracked_policy_id: '20000000-0000-4000-8000-000000000011',
+            status: 'succeeded',
+            result_snapshot_created: true,
+            failure_message: null,
+            execute_started_at: '2026-03-25T09:00:00Z',
+            execute_finished_at: '2026-03-25T09:00:01Z',
+          },
+          tracked_policy: updatedTrackedPolicy,
+        });
       }
       throw new Error(`Unexpected request: ${method} ${url}`);
     });
@@ -1095,5 +1122,100 @@ describe('DashboardPage', () => {
     expect(
       screen.getByText('No tracked policies yet. Add a policy URL to start monitoring changes.'),
     ).toBeTruthy();
+  });
+
+  it('polls execution status until it succeeds', async () => {
+    const trackedPolicyId = '20000000-0000-4000-8000-000000000099';
+    const executionId = '50000000-0000-4000-8000-000000000099';
+    const initialTrackedPolicy = buildTrackedPolicy({
+      id: trackedPolicyId,
+      canonical_url: 'https://example.com/legal/terms',
+      display_name: 'Slow Term Checks',
+      snapshot_version_count: 1,
+      latest_change_status: 'unchanged',
+    });
+    
+    const updatedTrackedPolicy = buildTrackedPolicy({
+      ...initialTrackedPolicy,
+      latest_change_status: 'updated',
+      snapshot_version_count: 2,
+    });
+
+    let pollCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        return jsonResponse([]);
+      }
+      
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        if (pollCount >= 2) {
+            return jsonResponse([updatedTrackedPolicy]);
+        }
+        return jsonResponse([initialTrackedPolicy]);
+      }
+      
+      if (url.endsWith(`/tracked-policies/${trackedPolicyId}/check`) && method === 'POST') {
+        return jsonResponse({
+          execution: {
+            id: executionId,
+            tracked_policy_id: trackedPolicyId,
+            status: 'running',
+            result_snapshot_created: null,
+            failure_message: null,
+            execute_started_at: '2026-03-25T09:00:00Z',
+            execute_finished_at: null,
+          },
+          tracked_policy: null,
+        });
+      }
+      
+      if (url.endsWith(`/executions/${executionId}`) && method === 'GET') {
+        pollCount += 1;
+        if (pollCount < 2) {
+            return jsonResponse({
+                id: executionId,
+                tracked_policy_id: trackedPolicyId,
+                status: 'running',
+                result_snapshot_created: null,
+                failure_message: null,
+                execute_started_at: '2026-03-25T09:00:00Z',
+                execute_finished_at: null,
+            });
+        }
+
+        return jsonResponse({
+            id: executionId,
+            tracked_policy_id: trackedPolicyId,
+            status: 'succeeded',
+            result_snapshot_created: true,
+            failure_message: null,
+            execute_started_at: '2026-03-25T09:00:00Z',
+            execute_finished_at: '2026-03-25T09:00:05Z',
+        });
+      }
+      
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(screen.getByText('Slow Term Checks')).toBeTruthy());
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Check now' }));
+
+    // The polling takes at least 2 * 2000 = 4000ms.
+    await waitFor(() =>
+      expect(
+        screen.getByText('Slow Term Checks was checked and a policy update was detected.'),
+      ).toBeTruthy(),
+      { timeout: 6000 }
+    );
+    expect(screen.getByText('2 stored versions')).toBeTruthy();
+    expect(screen.getByText(/updated/i)).toBeTruthy();
   });
 });

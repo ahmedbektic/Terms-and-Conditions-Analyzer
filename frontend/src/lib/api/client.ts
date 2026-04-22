@@ -16,6 +16,8 @@ import type {
   TrackedPolicySnapshotComparisonResponse,
   TrackedPolicySnapshotResponse,
   TrackedPolicyResponse,
+  TrackedPolicyCheckExecutionEnvelope,
+  TrackedPolicyCheckExecutionResponse,
 } from './contracts';
 import {
   sanitizeAgreementCreateInput,
@@ -101,12 +103,19 @@ export class DashboardApiClient {
     return this.request<TrackedPolicyResponse[]>('/tracked-policies');
   }
 
-  async checkTrackedPolicy(trackedPolicyId: string): Promise<TrackedPolicyResponse> {
-    return this.request<TrackedPolicyResponse>(
+  async checkTrackedPolicy(trackedPolicyId: string): Promise<TrackedPolicyCheckExecutionEnvelope> {
+    return this.request<TrackedPolicyCheckExecutionEnvelope>(
       `/tracked-policies/${validateUuid(trackedPolicyId, 'Tracked policy id')}/check`,
       {
         method: 'POST',
       },
+      { timeoutMs: LONG_RUNNING_REQUEST_TIMEOUT_MS }
+    );
+  }
+
+  async getTrackedPolicyExecution(executionId: string): Promise<TrackedPolicyCheckExecutionResponse> {
+    return this.request<TrackedPolicyCheckExecutionResponse>(
+      `/tracked-policies/executions/${validateUuid(executionId, 'Execution id')}`
     );
   }
 

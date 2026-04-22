@@ -134,41 +134,57 @@ export function useTrackedPolicies(apiClient: DashboardApiClient): UseTrackedPol
       setErrorMessage(null);
       setSuccessMessage(null);
       try {
-        const checkedTrackedPolicy = await apiClient.checkTrackedPolicy(trackedPolicyId);
+        const envelope = await apiClient.checkTrackedPolicy(trackedPolicyId);
+        let execution = envelope.execution;
+        
+        while (execution.status === 'pending' || execution.status === 'running') {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          execution = await apiClient.getTrackedPolicyExecution(execution.id);
+        }
+
+        if (execution.status === 'failed' || execution.status === 'timed_out') {
+          throw new Error(execution.failure_message || 'Failed to check the policy for updates.');
+        }
+
         const trackedPoliciesResponse = await apiClient.listTrackedPolicies();
         const mappedTrackedPolicies = trackedPoliciesResponse.map(mapTrackedPolicy);
         setTrackedPolicies(mappedTrackedPolicies);
-        if (selectedTrackedPolicy?.id === trackedPolicyId) {
-          setSelectedTrackedPolicy(
-            mappedTrackedPolicies.find((trackedPolicy) => trackedPolicy.id === trackedPolicyId) ??
-              selectedTrackedPolicy,
-          );
+
+        const refreshedPolicy = mappedTrackedPolicies.find((p) => p.id === trackedPolicyId);
+        if (selectedTrackedPolicy?.id === trackedPolicyId && refreshedPolicy) {
+          setSelectedTrackedPolicy(refreshedPolicy);
         }
-        if (checkedTrackedPolicy.latest_capture_message) {
-          setSuccessMessage(checkedTrackedPolicy.latest_capture_message);
-        } else if (checkedTrackedPolicy.latest_change_status === 'updated') {
+
+        const policyResponse = envelope.tracked_policy || trackedPoliciesResponse.find((p) => p.id === trackedPolicyId);
+        if (!policyResponse) {
+          throw new Error('Failed to load checked policy.');
+        }
+
+        if (policyResponse.latest_capture_message) {
+          setSuccessMessage(policyResponse.latest_capture_message);
+        } else if (policyResponse.latest_change_status === 'updated') {
           setSuccessMessage(
-            `${checkedTrackedPolicy.display_name} was checked and a policy update was detected.`,
+            `${policyResponse.display_name} was checked and a policy update was detected.`,
           );
-        } else if (checkedTrackedPolicy.latest_change_status === 'not_evaluated') {
+        } else if (policyResponse.latest_change_status === 'not_evaluated') {
           setSuccessMessage(
-            `${checkedTrackedPolicy.display_name} was checked and stored as its first tracked version.`,
+            `${policyResponse.display_name} was checked and stored as its first tracked version.`,
           );
-        } else if (checkedTrackedPolicy.latest_change_status === 'unchanged') {
+        } else if (policyResponse.latest_change_status === 'unchanged') {
           setSuccessMessage(
-            `${checkedTrackedPolicy.display_name} was checked and no meaningful policy changes were detected.`,
+            `${policyResponse.display_name} was checked and no meaningful policy changes were detected.`,
           );
-        } else if (checkedTrackedPolicy.latest_change_status === 'comparison_incomplete') {
+        } else if (policyResponse.latest_change_status === 'comparison_incomplete') {
           setSuccessMessage(
-            `${checkedTrackedPolicy.display_name} was checked, but the latest comparison could not be completed.`,
+            `${policyResponse.display_name} was checked, but the latest comparison could not be completed.`,
           );
         } else {
           const versionLabel =
-            checkedTrackedPolicy.snapshot_version_count === 1
+            policyResponse.snapshot_version_count === 1
               ? '1 stored version'
-              : `${checkedTrackedPolicy.snapshot_version_count} stored versions`;
+              : `${policyResponse.snapshot_version_count} stored versions`;
           setSuccessMessage(
-            `${checkedTrackedPolicy.display_name} was checked and now has ${versionLabel}.`,
+            `${policyResponse.display_name} was checked and now has ${versionLabel}.`,
           );
         }
       } catch (error) {

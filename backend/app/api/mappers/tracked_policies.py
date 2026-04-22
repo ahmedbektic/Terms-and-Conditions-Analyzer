@@ -3,10 +3,15 @@
 from ...repositories.models import StoredTrackedPolicy
 from ...schemas.tracked_policies import (
     TrackedPolicyCreateResponse,
+    TrackedPolicyCheckExecutionEnvelope,
+    TrackedPolicyCheckExecutionResponse,
     TrackedPolicyResponse,
     TrackedPolicySnapshotCompareBlockResponse,
     TrackedPolicySnapshotComparisonResponse,
     TrackedPolicySnapshotResponse,
+)
+from ...services.tracked_policy_check_execution_service import (
+    TrackedPolicyCheckExecutionResult,
 )
 from ...services.tracked_policy_service import TrackedPolicyEnrollmentResult
 from ...services.tracked_policy_versions_service import (
@@ -105,4 +110,30 @@ def to_tracked_policy_snapshot_comparison_response(
         comparison_outcome=comparison_result.comparison_outcome,
         normalization_notice=comparison_result.normalization_notice,
         render_mode="split_or_unified",
+    )
+
+
+def to_tracked_policy_check_execution_envelope(
+    execution_result: TrackedPolicyCheckExecutionResult,
+) -> TrackedPolicyCheckExecutionEnvelope:
+    """Map an execution model and resolving policy to the API check-envelope contract."""
+    execution = execution_result.execution
+
+    response_execution = TrackedPolicyCheckExecutionResponse(
+        id=execution.id,
+        tracked_policy_id=execution.tracked_policy_id,
+        status=execution.status.value,
+        result_snapshot_created=execution.result_snapshot_created,
+        failure_message=execution.failure_message,
+        execute_started_at=execution.started_at,
+        execute_finished_at=execution.completed_at,
+    )
+
+    response_tracked_policy = None
+    if execution_result.tracked_policy:
+        response_tracked_policy = to_tracked_policy_response(execution_result.tracked_policy)
+
+    return TrackedPolicyCheckExecutionEnvelope(
+        execution=response_execution,
+        tracked_policy=response_tracked_policy,
     )
