@@ -19,12 +19,16 @@ Use these settings when you create the Blueprint-backed service:
 - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Health check path: `/health`
 
+For Sentry-specific configuration, smoke checks, and scope boundaries, also use `docs/scrum-93-sentry-observability.md`.
+
 Set these Render environment variables before first real use:
 
 - `PERSISTENCE_BACKEND=postgres`
 - `SUPABASE_DATABASE_URL=<exact Supabase Session pooler connection string>` or `DATABASE_URL=...`
 - `SUPABASE_URL=https://<your-project-ref>.supabase.co`
 - `CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173[,chrome-extension://<your-extension-id>]`
+- `SENTRY_DSN=<backend sentry dsn>` when backend Sentry is enabled
+- Optional: `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, `SENTRY_TRACES_SAMPLE_RATE`
 - Rate-limit defaults are enabled in the backend; tune `API_RATE_LIMIT_*`, `AGREEMENT_CREATE_RATE_LIMIT_*`, and `ANALYSIS_*RATE_LIMIT*` in Render if your demo traffic needs a different budget.
 
 Connection note:
@@ -67,6 +71,9 @@ Set these Cloudflare Workers/Vite environment variables:
 
 - `VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co`
 - `VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>`
+- `VITE_SENTRY_DSN=<frontend sentry dsn>` when browser Sentry is enabled
+- Optional: `VITE_SENTRY_ENVIRONMENT`, `VITE_SENTRY_RELEASE`, `VITE_SENTRY_TRACES_SAMPLE_RATE`
+- Build-time source-map upload only: `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`
 - Optional: `NODE_VERSION=22.16.0` or any version compatible with the repo's `>=20.19.0` requirement
 - Optional browser override only if you intentionally want to bypass the edge proxy: `VITE_API_BASE_URL=https://<your-render-service>.onrender.com/api/v1`
 

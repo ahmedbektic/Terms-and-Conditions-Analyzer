@@ -20,6 +20,12 @@ services:
         value: 3.10.16
       - key: APP_ENV
         value: production
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_RELEASE
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0"
       - key: POSTGRES_AUTO_CREATE_SCHEMA
         value: "true"
       - key: AUTH_REQUIRE_JWT_SIGNATURE_VERIFICATION

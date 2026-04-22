@@ -34,6 +34,11 @@ class Settings:
     """Typed access to backend environment variables."""
 
     app_env: str = os.getenv("APP_ENV", "development")
+    observability_enable_test_routes: bool = _env_bool("OBSERVABILITY_ENABLE_TEST_ROUTES", "false")
+    sentry_dsn: str = os.getenv("SENTRY_DSN", "")
+    sentry_environment: str = os.getenv("SENTRY_ENVIRONMENT", "")
+    sentry_release: str = os.getenv("SENTRY_RELEASE", "")
+    sentry_traces_sample_rate: float = _env_float("SENTRY_TRACES_SAMPLE_RATE", "0")
     persistence_backend: str = os.getenv("PERSISTENCE_BACKEND", "memory").lower()
     supabase_database_url: str = os.getenv("SUPABASE_DATABASE_URL", "")
     database_url: str = os.getenv("DATABASE_URL", "")
@@ -120,6 +125,15 @@ class Settings:
         """Return the first configured Postgres connection string."""
 
         return self.supabase_database_url or self.database_url
+
+    @property
+    def effective_sentry_environment(self) -> str:
+        """Resolve Sentry environment from explicit setting or APP_ENV."""
+
+        explicit = self.sentry_environment.strip()
+        if explicit:
+            return explicit
+        return self.app_env.strip() or "development"
 
     @property
     def effective_supabase_jwt_issuer(self) -> str:

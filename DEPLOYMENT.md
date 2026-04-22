@@ -330,6 +330,17 @@ That is non-negotiable if we want meaningful debugging:
 - frontend SDK catches UI/runtime problems
 - backend SDK catches API exceptions and worker failures
 
+### Current SCRUM-93 observability scope
+
+For the current deployed path, Sentry is intentionally limited to:
+
+- React dashboard frontend
+- FastAPI backend
+- browser -> Cloudflare Worker proxy -> API trace propagation
+
+Cloudflare Worker observability remains complementary edge visibility only.  
+**Cloudflare OTLP export into Sentry is explicitly deferred and is not part of SCRUM-93.**
+
 ### Hosted Sentry is the right free choice
 
 Self-hosting Sentry would be infrastructure vanity. The free hosted plan is much more appropriate for our budget and team size.

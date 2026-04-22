@@ -7,5 +7,6 @@ def test_backend_smoke() -> None:
 
     assert "/health" in paths
     assert "/api/v1/agreements" in paths
+    assert "/api/v1/observability/sentry-test" in paths
     assert "/api/v1/reports" in paths
     assert "/api/v1/reports/analyze" in paths

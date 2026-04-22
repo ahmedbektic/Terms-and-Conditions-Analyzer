@@ -8,10 +8,12 @@ remain easy to evolve.
 from fastapi import APIRouter
 
 from .routes.agreements import router as agreements_router
+from .routes.observability import router as observability_router
 from .routes.reports import router as reports_router
 from .routes.tracked_policies import router as tracked_policies_router
 
 api_router = APIRouter()
 api_router.include_router(agreements_router, tags=["agreements"])
+api_router.include_router(observability_router, tags=["observability"])
 api_router.include_router(reports_router, tags=["reports"])
 api_router.include_router(tracked_policies_router, tags=["tracked-policies"])

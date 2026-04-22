@@ -13,10 +13,13 @@ from .api.deps import get_request_rate_limiter
 from .api.router import api_router
 from .security import RateLimitExceededError
 from .core.config import settings
+from .core.sentry import init_sentry
 
 
 def create_app() -> FastAPI:
     """Create and configure the API application instance."""
+
+    init_sentry(settings=settings)
 
     app = FastAPI(
         title="Terms and Conditions Analyzer API",
