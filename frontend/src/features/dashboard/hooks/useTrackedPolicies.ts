@@ -155,7 +155,8 @@ export function useTrackedPolicies(apiClient: DashboardApiClient): UseTrackedPol
           setSelectedTrackedPolicy(refreshedPolicy);
         }
 
-        const policyResponse = envelope.tracked_policy || trackedPoliciesResponse.find((p) => p.id === trackedPolicyId);
+        const policyResponse =
+          trackedPoliciesResponse.find((p) => p.id === trackedPolicyId) || envelope.tracked_policy;
         if (!policyResponse) {
           throw new Error('Failed to load checked policy.');
         }

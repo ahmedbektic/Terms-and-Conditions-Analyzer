@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from ..repositories.errors import ActiveTrackedPolicyCheckExecutionConflictError
 from ..repositories.interfaces import (
     TrackedPolicyCheckExecutionRepository,
     TrackedPolicyRepository,
@@ -83,11 +84,28 @@ class TrackedPolicyCheckExecutionService:
             )
 
         # 3. Execution Record Creation
-        execution = self._check_execution_repository.create(
-            tracked_policy_id=tracked_policy_id,
-            subject_type=subject.subject_type,
-            subject_id=subject.subject_id,
-        )
+        try:
+            execution = self._check_execution_repository.create(
+                tracked_policy_id=tracked_policy_id,
+                subject_type=subject.subject_type,
+                subject_id=subject.subject_id,
+            )
+        except ActiveTrackedPolicyCheckExecutionConflictError:
+            active_execution = self._check_execution_repository.get_active_for_tracked_policy(
+                tracked_policy_id=tracked_policy_id,
+                subject_type=subject.subject_type,
+                subject_id=subject.subject_id,
+            )
+            if active_execution is None:
+                raise RuntimeError(
+                    "Tracked-policy check execution create conflicted, but no active execution "
+                    "could be reloaded."
+                ) from None
+            return TrackedPolicyCheckExecutionResult(
+                execution=active_execution,
+                tracked_policy=tracked_policy,
+            )
+
         self._check_execution_repository.mark_running(execution_id=execution.id)
 
         # 4. Invocation & State Transitions
@@ -122,7 +140,7 @@ class TrackedPolicyCheckExecutionService:
             # 5. Structured failure classification
             failure_message = str(error)
             status = TrackedPolicyCheckExecutionStatus.FAILED
-            
+
             # Check for timeout semantics in the error message
             if "timed out" in failure_message.lower() or isinstance(error, TimeoutError):
                 status = TrackedPolicyCheckExecutionStatus.TIMED_OUT
@@ -146,3 +164,19 @@ class TrackedPolicyCheckExecutionService:
                 execution=completed_execution,
                 tracked_policy=updated_tracked_policy,
             )
+
+    def get_tracked_policy_execution(
+        self, *, subject: RequestSubject, execution_id: UUID
+    ) -> StoredTrackedPolicyCheckExecution:
+        """Return one stored execution scoped to the request subject."""
+
+        execution = self._check_execution_repository.get_by_id(
+            execution_id=execution_id,
+            subject_type=subject.subject_type,
+            subject_id=subject.subject_id,
+        )
+        if execution is None:
+            raise TrackedPolicyCheckExecutionNotFoundError(
+                f"Tracked policy check execution {execution_id} was not found."
+            )
+        return execution

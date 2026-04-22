@@ -23,10 +23,12 @@ class TrackedPolicyCheckExecutionStatus(str, Enum):
     TIMED_OUT = "timed_out"
 
 
-_ACTIVE_STATUSES = frozenset({
-    TrackedPolicyCheckExecutionStatus.PENDING,
-    TrackedPolicyCheckExecutionStatus.RUNNING,
-})
+_ACTIVE_STATUSES = frozenset(
+    {
+        TrackedPolicyCheckExecutionStatus.PENDING,
+        TrackedPolicyCheckExecutionStatus.RUNNING,
+    }
+)
 
 
 def is_active_execution_status(status: TrackedPolicyCheckExecutionStatus) -> bool:

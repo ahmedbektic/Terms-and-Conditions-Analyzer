@@ -9,6 +9,7 @@ from dataclasses import replace
 from uuid import UUID, uuid4
 
 from .analysis_status import AnalysisLifecycleStatus, normalize_analysis_lifecycle_status
+from .errors import ActiveTrackedPolicyCheckExecutionConflictError
 from .models import (
     PolicyChangeEventCreateInput,
     PolicySnapshotAppendResult,
@@ -513,6 +514,16 @@ class InMemoryTrackedPolicyCheckExecutionRepository:
         subject_type: str,
         subject_id: str,
     ) -> StoredTrackedPolicyCheckExecution:
+        existing_active_execution = self.get_active_for_tracked_policy(
+            tracked_policy_id=tracked_policy_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+        )
+        if existing_active_execution is not None:
+            raise ActiveTrackedPolicyCheckExecutionConflictError(
+                "An active tracked-policy check execution already exists for this policy."
+            )
+
         now = datetime.now(timezone.utc)
         execution = StoredTrackedPolicyCheckExecution(
             id=uuid4(),
@@ -620,4 +631,3 @@ class InMemoryTrackedPolicyCheckExecutionRepository:
         )
         self._storage.check_executions[execution_id] = updated
         return updated
-

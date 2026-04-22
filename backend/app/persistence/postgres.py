@@ -19,7 +19,10 @@ from ..repositories.analysis_status import (
     AnalysisLifecycleStatus,
     normalize_analysis_lifecycle_status,
 )
-from ..repositories.errors import ActiveTrackedPolicyConflictError
+from ..repositories.errors import (
+    ActiveTrackedPolicyCheckExecutionConflictError,
+    ActiveTrackedPolicyConflictError,
+)
 from ..repositories.models import (
     PolicyChangeEventCreateInput,
     PolicySnapshotAppendResult,
@@ -1423,19 +1426,24 @@ class PostgresTrackedPolicyCheckExecutionRepository:
         subject_id: str,
     ) -> StoredTrackedPolicyCheckExecution:
         execution_id = uuid4()
-        with self._storage.connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    f"""
-                    INSERT INTO tracked_policy_check_executions (
-                      id, tracked_policy_id, subject_type, subject_id, status
-                    ) VALUES (%s, %s, %s, %s, 'pending')
-                    RETURNING {_CHECK_EXECUTION_COLUMNS};
-                    """,
-                    (execution_id, tracked_policy_id, subject_type, subject_id),
-                )
-                row = cursor.fetchone()
-            conn.commit()
+        try:
+            with self._storage.connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        INSERT INTO tracked_policy_check_executions (
+                          id, tracked_policy_id, subject_type, subject_id, status
+                        ) VALUES (%s, %s, %s, %s, 'pending')
+                        RETURNING {_CHECK_EXECUTION_COLUMNS};
+                        """,
+                        (execution_id, tracked_policy_id, subject_type, subject_id),
+                    )
+                    row = cursor.fetchone()
+                conn.commit()
+        except psycopg_errors.UniqueViolation as error:
+            raise ActiveTrackedPolicyCheckExecutionConflictError(
+                "An active tracked-policy check execution already exists for this policy."
+            ) from error
         return _check_execution_from_row(row)
 
     def get_by_id(
@@ -1552,4 +1560,3 @@ class PostgresTrackedPolicyCheckExecutionRepository:
                 row = cursor.fetchone()
             conn.commit()
         return _check_execution_from_row(row) if row else None
-

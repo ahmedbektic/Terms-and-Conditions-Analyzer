@@ -1218,4 +1218,84 @@ describe('DashboardPage', () => {
     expect(screen.getByText('2 stored versions')).toBeTruthy();
     expect(screen.getByText(/updated/i)).toBeTruthy();
   });
+
+  it('prefers refreshed tracked-policy state over stale check-envelope state after polling', async () => {
+    const trackedPolicyId = '20000000-0000-4000-8000-000000000100';
+    const executionId = '50000000-0000-4000-8000-000000000100';
+    const staleEnvelopeTrackedPolicy = buildTrackedPolicy({
+      id: trackedPolicyId,
+      display_name: 'Refresh Wins Terms',
+      latest_change_status: 'unchanged',
+      snapshot_version_count: 1,
+    });
+    const refreshedTrackedPolicy = buildTrackedPolicy({
+      ...staleEnvelopeTrackedPolicy,
+      latest_change_status: 'updated',
+      snapshot_version_count: 2,
+    });
+
+    let pollCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.endsWith('/reports') && method === 'GET') {
+        return jsonResponse([]);
+      }
+
+      if (url.endsWith('/tracked-policies') && method === 'GET') {
+        if (pollCount >= 1) {
+          return jsonResponse([refreshedTrackedPolicy]);
+        }
+        return jsonResponse([staleEnvelopeTrackedPolicy]);
+      }
+
+      if (url.endsWith(`/tracked-policies/${trackedPolicyId}/check`) && method === 'POST') {
+        return jsonResponse({
+          execution: {
+            id: executionId,
+            tracked_policy_id: trackedPolicyId,
+            status: 'running',
+            result_snapshot_created: null,
+            failure_message: null,
+            execute_started_at: '2026-03-25T09:00:00Z',
+            execute_finished_at: null,
+          },
+          tracked_policy: staleEnvelopeTrackedPolicy,
+        });
+      }
+
+      if (url.endsWith(`/executions/${executionId}`) && method === 'GET') {
+        pollCount += 1;
+        return jsonResponse({
+          id: executionId,
+          tracked_policy_id: trackedPolicyId,
+          status: 'succeeded',
+          result_snapshot_created: true,
+          failure_message: null,
+          execute_started_at: '2026-03-25T09:00:00Z',
+          execute_finished_at: '2026-03-25T09:00:05Z',
+        });
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(screen.getByText('Refresh Wins Terms')).toBeTruthy());
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Check now' }));
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText('Refresh Wins Terms was checked and a policy update was detected.'),
+        ).toBeTruthy(),
+      { timeout: 4000 },
+    );
+    expect(screen.getByText('2 stored versions')).toBeTruthy();
+  });
 });

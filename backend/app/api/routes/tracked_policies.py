@@ -115,10 +115,9 @@ def get_tracked_policy_execution(
     """Retrieve the status of a specific tracked-policy check execution."""
 
     try:
-        execution = service._check_execution_service._check_execution_repository.get_by_id(
+        execution = service.get_tracked_policy_execution(
+            subject=subject,
             execution_id=execution_id,
-            subject_type=subject.subject_type,
-            subject_id=subject.subject_id,
         )
     except TrackedPolicyCheckExecutionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error

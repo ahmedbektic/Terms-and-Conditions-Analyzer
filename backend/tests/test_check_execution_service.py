@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.repositories.errors import ActiveTrackedPolicyCheckExecutionConflictError
 from app.repositories.in_memory import (
     InMemoryStorage,
     InMemoryTrackedPolicyRepository,
@@ -21,6 +22,7 @@ from app.services.policy_snapshot_service import (
 from app.services.request_subject import RequestSubject
 from app.services.tracked_policy_check_execution_service import (
     TrackedPolicyCheckExecutionResult,
+    TrackedPolicyCheckExecutionNotFoundError,
     TrackedPolicyCheckExecutionService,
     TrackedPolicyNotFoundError,
 )
@@ -96,6 +98,36 @@ def test_execute_check_raises_not_found_for_missing_policy(execution_service, su
         execution_service.execute_check(subject=subject, tracked_policy_id=uuid4())
 
 
+def test_get_tracked_policy_execution_returns_execution_for_owner(
+    execution_service, execution_repository, subject, tracked_policy
+):
+    created = execution_repository.create(
+        tracked_policy_id=tracked_policy.id,
+        subject_type=subject.subject_type,
+        subject_id=subject.subject_id,
+    )
+
+    execution = execution_service.get_tracked_policy_execution(
+        subject=subject,
+        execution_id=created.id,
+    )
+
+    assert execution.id == created.id
+
+
+def test_get_tracked_policy_execution_raises_not_found_for_unknown_id(execution_service, subject):
+    execution_id = uuid4()
+
+    with pytest.raises(
+        TrackedPolicyCheckExecutionNotFoundError,
+        match=f"Tracked policy check execution {execution_id} was not found.",
+    ):
+        execution_service.get_tracked_policy_execution(
+            subject=subject,
+            execution_id=execution_id,
+        )
+
+
 def test_execute_check_creates_successful_execution(
     execution_service, snapshot_service, subject, tracked_policy
 ):
@@ -129,6 +161,77 @@ def test_execute_check_deduplicates_active_execution(
     assert result.execution.id == pending_exec.id
     assert result.execution.status == TrackedPolicyCheckExecutionStatus.PENDING
     assert result.tracked_policy.id == tracked_policy.id
+    assert len(snapshot_service.check_calls) == 0
+
+
+def test_execute_check_returns_reloaded_active_execution_after_create_conflict(
+    execution_service, execution_repository, snapshot_service, subject, tracked_policy, monkeypatch
+):
+    active_execution = execution_repository.create(
+        tracked_policy_id=tracked_policy.id,
+        subject_type=subject.subject_type,
+        subject_id=subject.subject_id,
+    )
+    active_lookup_results = iter([None, active_execution])
+
+    monkeypatch.setattr(
+        execution_repository,
+        "get_active_for_tracked_policy",
+        lambda **kwargs: next(active_lookup_results),
+    )
+    monkeypatch.setattr(
+        execution_repository,
+        "create",
+        lambda **kwargs: (_ for _ in ()).throw(
+            ActiveTrackedPolicyCheckExecutionConflictError("duplicate active execution")
+        ),
+    )
+    monkeypatch.setattr(
+        execution_repository,
+        "mark_running",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("mark_running should not be called after a create conflict")
+        ),
+    )
+
+    result = execution_service.execute_check(subject=subject, tracked_policy_id=tracked_policy.id)
+
+    assert result.execution.id == active_execution.id
+    assert result.tracked_policy.id == tracked_policy.id
+    assert len(snapshot_service.check_calls) == 0
+
+
+def test_execute_check_raises_runtime_error_when_conflict_cannot_be_reloaded(
+    execution_service, execution_repository, snapshot_service, subject, tracked_policy, monkeypatch
+):
+    active_lookup_results = iter([None, None])
+
+    monkeypatch.setattr(
+        execution_repository,
+        "get_active_for_tracked_policy",
+        lambda **kwargs: next(active_lookup_results),
+    )
+    monkeypatch.setattr(
+        execution_repository,
+        "create",
+        lambda **kwargs: (_ for _ in ()).throw(
+            ActiveTrackedPolicyCheckExecutionConflictError("duplicate active execution")
+        ),
+    )
+    monkeypatch.setattr(
+        execution_repository,
+        "mark_running",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("mark_running should not be called after a create conflict")
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="create conflicted, but no active execution could be reloaded",
+    ):
+        execution_service.execute_check(subject=subject, tracked_policy_id=tracked_policy.id)
+
     assert len(snapshot_service.check_calls) == 0
 
 

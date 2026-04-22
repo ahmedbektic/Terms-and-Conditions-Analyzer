@@ -197,4 +197,3 @@ class StoredTrackedPolicyCheckExecution:
     result_previous_snapshot_id: UUID | None
     result_new_snapshot_id: UUID | None
     result_change_event_id: UUID | None
-

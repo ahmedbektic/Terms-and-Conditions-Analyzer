@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 import httpx
@@ -636,8 +637,7 @@ def test_tracked_policy_check_returns_no_change_message_without_creating_duplica
     assert tracked_policy["latest_change_status"] == "unchanged"
     assert tracked_policy["snapshot_version_count"] == 1
     assert (
-        "no meaningful policy changes"
-        in (tracked_policy["latest_capture_message"] or "").lower()
+        "no meaningful policy changes" in (tracked_policy["latest_capture_message"] or "").lower()
     )
 
 
@@ -998,3 +998,24 @@ def test_tracked_policy_execution_status_returns_execution_record(
     assert status_response.json()["id"] == execution_id
     assert status_response.json()["status"] == "succeeded"
     assert status_response.json()["tracked_policy_id"] == tracked_policy_id
+
+
+def test_tracked_policy_execution_status_returns_404_for_unknown_execution(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracked_policy_service, analysis_service = _build_shared_services()
+    monkeypatch.setattr(deps, "_tracked_policy_service", tracked_policy_service)
+    monkeypatch.setattr(deps, "_analysis_service", analysis_service)
+    owner_headers = _auth_headers("auth-user-a")
+    execution_id = uuid4()
+
+    status_response = client.get(
+        f"/api/v1/tracked-policies/executions/{execution_id}",
+        headers=owner_headers,
+    )
+
+    assert status_response.status_code == 404
+    assert (
+        status_response.json()["detail"]
+        == f"Tracked policy check execution {execution_id} was not found."
+    )

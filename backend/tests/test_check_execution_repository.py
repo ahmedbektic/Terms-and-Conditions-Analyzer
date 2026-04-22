@@ -2,6 +2,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.repositories.errors import ActiveTrackedPolicyCheckExecutionConflictError
 from app.repositories.in_memory import (
     InMemoryTrackedPolicyCheckExecutionRepository,
     InMemoryStorage,
@@ -72,6 +73,32 @@ def test_create_returns_pending_execution_with_timestamps() -> None:
     assert execution.result_snapshot_created is None
 
 
+def test_create_rejects_duplicate_active_execution_for_same_owner_and_policy() -> None:
+    repo = _build_repo()
+    repo.create(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
+
+    with pytest.raises(
+        ActiveTrackedPolicyCheckExecutionConflictError,
+        match="active tracked-policy check execution",
+    ):
+        repo.create(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
+
+
+def test_create_succeeds_after_prior_execution_reaches_terminal_state() -> None:
+    repo = _build_repo()
+    first_execution = repo.create(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
+    repo.mark_running(execution_id=first_execution.id)
+    repo.mark_completed(
+        execution_id=first_execution.id,
+        status=TrackedPolicyCheckExecutionStatus.SUCCEEDED,
+    )
+
+    second_execution = repo.create(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
+
+    assert second_execution.id != first_execution.id
+    assert second_execution.status == TrackedPolicyCheckExecutionStatus.PENDING
+
+
 def test_get_by_id_returns_execution_for_owner() -> None:
     repo = _build_repo()
     created = repo.create(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
@@ -99,9 +126,7 @@ def test_get_by_id_returns_none_for_unknown_id() -> None:
 def test_get_active_returns_pending_execution() -> None:
     repo = _build_repo()
     created = repo.create(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
-    active = repo.get_active_for_tracked_policy(
-        tracked_policy_id=TRACKED_POLICY_ID, **OWNER
-    )
+    active = repo.get_active_for_tracked_policy(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
 
     assert active is not None
     assert active.id == created.id
@@ -111,9 +136,7 @@ def test_get_active_returns_running_execution() -> None:
     repo = _build_repo()
     created = repo.create(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
     repo.mark_running(execution_id=created.id)
-    active = repo.get_active_for_tracked_policy(
-        tracked_policy_id=TRACKED_POLICY_ID, **OWNER
-    )
+    active = repo.get_active_for_tracked_policy(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
 
     assert active is not None
     assert active.status == TrackedPolicyCheckExecutionStatus.RUNNING
@@ -128,9 +151,7 @@ def test_get_active_returns_none_after_completion() -> None:
         status=TrackedPolicyCheckExecutionStatus.SUCCEEDED,
         result_snapshot_created=True,
     )
-    active = repo.get_active_for_tracked_policy(
-        tracked_policy_id=TRACKED_POLICY_ID, **OWNER
-    )
+    active = repo.get_active_for_tracked_policy(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
 
     assert active is None
 
@@ -138,9 +159,7 @@ def test_get_active_returns_none_after_completion() -> None:
 def test_get_active_scopes_to_owner() -> None:
     repo = _build_repo()
     repo.create(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
-    active = repo.get_active_for_tracked_policy(
-        tracked_policy_id=TRACKED_POLICY_ID, **OTHER_OWNER
-    )
+    active = repo.get_active_for_tracked_policy(tracked_policy_id=TRACKED_POLICY_ID, **OTHER_OWNER)
 
     assert active is None
 
@@ -249,6 +268,4 @@ def test_storage_clear_removes_check_executions() -> None:
     repo.create(tracked_policy_id=TRACKED_POLICY_ID, **OWNER)
     storage.clear()
 
-    assert repo.get_active_for_tracked_policy(
-        tracked_policy_id=TRACKED_POLICY_ID, **OWNER
-    ) is None
+    assert repo.get_active_for_tracked_policy(tracked_policy_id=TRACKED_POLICY_ID, **OWNER) is None

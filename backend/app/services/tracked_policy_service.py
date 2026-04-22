@@ -30,6 +30,7 @@ from ..repositories.models import (
     PolicySnapshotCreateInput,
     StoredReport,
     StoredTrackedPolicy,
+    StoredTrackedPolicyCheckExecution,
 )
 from ..repositories.policy_capture_status import PolicyCaptureStatus
 from ..repositories.policy_change_status import PolicyChangeStatus
@@ -118,10 +119,13 @@ class TrackedPolicyService:
             analysis_service=analysis_service,
             public_web_source_inspector=self._public_web_source_inspector,
         )
-        self._check_execution_service = check_execution_service or TrackedPolicyCheckExecutionService(
-            tracked_policy_repository=tracked_policy_repository,
-            check_execution_repository=check_execution_repository,
-            policy_snapshot_service=self._policy_snapshot_service,
+        self._check_execution_service = (
+            check_execution_service
+            or TrackedPolicyCheckExecutionService(
+                tracked_policy_repository=tracked_policy_repository,
+                check_execution_repository=check_execution_repository,
+                policy_snapshot_service=self._policy_snapshot_service,
+            )
         )
 
     def create_tracked_policy(
@@ -263,8 +267,20 @@ class TrackedPolicyService:
             subject=subject,
             tracked_policy_id=tracked_policy_id,
         )
-        if result.tracked_policy is None and result.execution.status != TrackedPolicyCheckExecutionStatus.PENDING:
+        if (
+            result.tracked_policy is None
+            and result.execution.status != TrackedPolicyCheckExecutionStatus.PENDING
+        ):
             raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
-        
+
         return result
 
+    def get_tracked_policy_execution(
+        self, *, subject: RequestSubject, execution_id: UUID
+    ) -> StoredTrackedPolicyCheckExecution:
+        """Return one stored execution for the request subject."""
+
+        return self._check_execution_service.get_tracked_policy_execution(
+            subject=subject,
+            execution_id=execution_id,
+        )
