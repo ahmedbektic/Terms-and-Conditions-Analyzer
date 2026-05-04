@@ -9,12 +9,14 @@ from app.repositories.in_memory import (
     InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryStorage,
+    InMemoryTrackedPolicyCheckExecutionRepository,
     InMemoryTrackedPolicyRepository,
 )
 from app.repositories.policy_capture_status import PolicyCaptureStatus
 from app.repositories.policy_change_status import PolicyChangeStatus
 from app.repositories.policy_tracking_status import PolicyTrackingStatus
 from app.repositories.report_capture_kind import ReportContentCaptureKind
+from app.repositories.tracked_policy_check_execution_status import TrackedPolicyCheckExecutionStatus
 from app.services.ai_provider import DeterministicAnalysisProvider
 from app.services.analysis_execution import SyncAnalysisExecutionStrategy
 from app.services.analysis_service import (
@@ -192,6 +194,7 @@ def _build_services(
 ) -> tuple[TrackedPolicyService, AnalysisOrchestrationService | _FailingBaselineAnalysisService]:
     storage = InMemoryStorage()
     tracked_policy_repository = InMemoryTrackedPolicyRepository(storage)
+    check_execution_repository = InMemoryTrackedPolicyCheckExecutionRepository(storage)
     policy_snapshot_repository = InMemoryPolicySnapshotRepository(storage)
     policy_change_event_repository = InMemoryPolicyChangeEventRepository(storage)
 
@@ -213,6 +216,7 @@ def _build_services(
         TrackedPolicyService(
             tracked_policy_repository=tracked_policy_repository,
             policy_snapshot_repository=policy_snapshot_repository,
+            check_execution_repository=check_execution_repository,
             analysis_service=effective_analysis_service,
             policy_change_event_repository=policy_change_event_repository,
             public_web_source_inspector=inspector,
@@ -534,15 +538,14 @@ def test_tracked_policy_service_marks_policy_invalid_source_and_does_not_create_
         source_url="https://example.com/terms",
     )
 
-    with pytest.raises(TrackedPolicyCheckFailedError) as error_info:
-        service.check_tracked_policy(
-            subject=subject,
-            tracked_policy_id=enrollment.tracked_policy.id,
-        )
+    result = service.check_tracked_policy(
+        subject=subject,
+        tracked_policy_id=enrollment.tracked_policy.id,
+    )
 
-    message = str(error_info.value).lower()
-    assert "404 not found" in message
-    assert "public legal page" in message
+    assert result.execution.status == TrackedPolicyCheckExecutionStatus.FAILED
+    assert "404 not found" in (result.execution.failure_message or "").lower()
+    assert "public legal page" in (result.execution.failure_message or "").lower()
 
     tracked_policies = service.list_tracked_policies(subject=subject)
     assert len(tracked_policies) == 1
@@ -574,11 +577,13 @@ def test_tracked_policy_check_does_not_create_new_saved_reports() -> None:
         source_url="https://example.com/terms",
     )
 
-    updated = service.check_tracked_policy(
+    result = service.check_tracked_policy(
         subject=subject,
         tracked_policy_id=enrollment.tracked_policy.id,
     )
+    updated = result.tracked_policy
 
+    assert updated is not None
     assert updated.tracking_status == PolicyTrackingStatus.ACTIVE
     assert updated.latest_capture_status == PolicyCaptureStatus.CAPTURED
     assert updated.latest_change_status == PolicyChangeStatus.UNCHANGED
@@ -609,11 +614,13 @@ def test_tracked_policy_check_does_not_increment_version_count_when_baseline_sna
         source_url="https://example.com/terms",
     )
 
-    updated = service.check_tracked_policy(
+    result = service.check_tracked_policy(
         subject=subject,
         tracked_policy_id=enrollment.tracked_policy.id,
     )
+    updated = result.tracked_policy
 
+    assert updated is not None
     assert updated.latest_capture_status == PolicyCaptureStatus.CAPTURED
     assert updated.latest_change_status == PolicyChangeStatus.UNCHANGED
     assert "no meaningful policy changes" in (updated.latest_capture_message or "").lower()
@@ -642,10 +649,12 @@ def test_tracked_policy_check_creates_saved_report_for_new_snapshot_version() ->
         source_url="https://example.com/terms",
     )
 
-    updated = service.check_tracked_policy(
+    result = service.check_tracked_policy(
         subject=subject,
         tracked_policy_id=enrollment.tracked_policy.id,
     )
+    updated = result.tracked_policy
+    assert updated is not None
 
     reports = analysis_service.list_reports(subject=subject)
     assert updated.latest_change_status == PolicyChangeStatus.UPDATED

@@ -23,16 +23,19 @@ from ..repositories.errors import ActiveTrackedPolicyConflictError
 from ..repositories.interfaces import (
     PolicyChangeEventRepository,
     PolicySnapshotRepository,
+    TrackedPolicyCheckExecutionRepository,
     TrackedPolicyRepository,
 )
 from ..repositories.models import (
     PolicySnapshotCreateInput,
     StoredReport,
     StoredTrackedPolicy,
+    StoredTrackedPolicyCheckExecution,
 )
 from ..repositories.policy_capture_status import PolicyCaptureStatus
 from ..repositories.policy_change_status import PolicyChangeStatus
 from ..repositories.policy_tracking_status import PolicyTrackingStatus
+from ..repositories.tracked_policy_check_execution_status import TrackedPolicyCheckExecutionStatus
 from .analysis_service import (
     AgreementNotFoundError,
     AnalysisOrchestrationService,
@@ -46,6 +49,11 @@ from .policy_snapshot_service import (
     PolicySnapshotTrackedPolicyNotFoundError,
 )
 from .request_subject import RequestSubject
+from .tracked_policy_check_execution_service import (
+    TrackedPolicyNotFoundError as CheckExecutionTrackedPolicyNotFoundError,
+    TrackedPolicyCheckExecutionResult,
+    TrackedPolicyCheckExecutionService,
+)
 from .web_source import (
     PublicWebSourceInspector,
     WebSourceInspectionError,
@@ -90,10 +98,12 @@ class TrackedPolicyService:
         *,
         tracked_policy_repository: TrackedPolicyRepository,
         policy_snapshot_repository: PolicySnapshotRepository,
+        check_execution_repository: TrackedPolicyCheckExecutionRepository,
         analysis_service: AnalysisOrchestrationService,
         policy_change_event_repository: PolicyChangeEventRepository | None = None,
         public_web_source_inspector: PublicWebSourceInspector | None = None,
         policy_snapshot_service: PolicySnapshotService | None = None,
+        check_execution_service: TrackedPolicyCheckExecutionService | None = None,
         policy_text_canonicalizer: PolicyTextCanonicalizer | None = None,
     ) -> None:
         self._tracked_policy_repository = tracked_policy_repository
@@ -109,6 +119,14 @@ class TrackedPolicyService:
             policy_change_event_repository=policy_change_event_repository,
             analysis_service=analysis_service,
             public_web_source_inspector=self._public_web_source_inspector,
+        )
+        self._check_execution_service = (
+            check_execution_service
+            or TrackedPolicyCheckExecutionService(
+                tracked_policy_repository=tracked_policy_repository,
+                check_execution_repository=check_execution_repository,
+                policy_snapshot_service=self._policy_snapshot_service,
+            )
         )
 
     def create_tracked_policy(
@@ -240,16 +258,33 @@ class TrackedPolicyService:
 
     def check_tracked_policy(
         self, *, subject: RequestSubject, tracked_policy_id: UUID
-    ) -> StoredTrackedPolicy:
+    ) -> TrackedPolicyCheckExecutionResult:
         """Fetch current policy text, store a new snapshot when it changes, and refresh status."""
 
+        # Note: In future PRs, this synchronously returns an execution object instead of the policy.
+        # For now, we still return the resulting tracked policy to keep the API stable,
+        # but we drive it entirely through the execution deduplication seam.
         try:
-            result = self._policy_snapshot_service.check_tracked_policy(
+            result = self._check_execution_service.execute_check(
                 subject=subject,
                 tracked_policy_id=tracked_policy_id,
             )
-        except PolicySnapshotTrackedPolicyNotFoundError as error:
+        except CheckExecutionTrackedPolicyNotFoundError as error:
             raise TrackedPolicyNotFoundError(str(error)) from error
-        except PolicySnapshotCheckFailedError as error:
-            raise TrackedPolicyCheckFailedError(str(error)) from error
-        return result.tracked_policy
+        if (
+            result.tracked_policy is None
+            and result.execution.status != TrackedPolicyCheckExecutionStatus.PENDING
+        ):
+            raise TrackedPolicyNotFoundError(f"Tracked policy {tracked_policy_id} was not found.")
+
+        return result
+
+    def get_tracked_policy_execution(
+        self, *, subject: RequestSubject, execution_id: UUID
+    ) -> StoredTrackedPolicyCheckExecution:
+        """Return one stored execution for the request subject."""
+
+        return self._check_execution_service.get_tracked_policy_execution(
+            subject=subject,
+            execution_id=execution_id,
+        )

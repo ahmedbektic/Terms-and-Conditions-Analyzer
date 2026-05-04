@@ -19,7 +19,10 @@ from ..repositories.analysis_status import (
     AnalysisLifecycleStatus,
     normalize_analysis_lifecycle_status,
 )
-from ..repositories.errors import ActiveTrackedPolicyConflictError
+from ..repositories.errors import (
+    ActiveTrackedPolicyCheckExecutionConflictError,
+    ActiveTrackedPolicyConflictError,
+)
 from ..repositories.models import (
     PolicyChangeEventCreateInput,
     PolicySnapshotAppendResult,
@@ -30,6 +33,7 @@ from ..repositories.models import (
     StoredFlaggedClause,
     StoredReport,
     StoredTrackedPolicy,
+    StoredTrackedPolicyCheckExecution,
 )
 from ..repositories.policy_capture_status import (
     PolicyCaptureStatus,
@@ -49,6 +53,11 @@ from ..repositories.policy_tracking_status import (
 from ..repositories.report_capture_kind import (
     ReportContentCaptureKind,
     normalize_report_content_capture_kind,
+)
+from ..repositories.tracked_policy_check_execution_status import (
+    TrackedPolicyCheckExecutionStatus,
+    is_active_execution_status,
+    normalize_tracked_policy_check_execution_status,
 )
 
 SCHEMA_SQL = """
@@ -293,6 +302,38 @@ BEGIN
       FOREIGN KEY (new_snapshot_id) REFERENCES policy_snapshots(id) ON DELETE SET NULL;
   END IF;
 END $$;
+
+CREATE TABLE IF NOT EXISTS tracked_policy_check_executions (
+  id UUID PRIMARY KEY,
+  tracked_policy_id UUID NOT NULL REFERENCES tracked_policies(id) ON DELETE CASCADE,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (
+    status IN ('pending', 'running', 'succeeded', 'failed', 'timed_out')
+  ),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  started_at TIMESTAMPTZ NULL,
+  completed_at TIMESTAMPTZ NULL,
+  failure_code TEXT NULL,
+  failure_stage TEXT NULL,
+  failure_message TEXT NULL,
+  failure_retryable BOOLEAN NULL,
+  result_snapshot_created BOOLEAN NULL,
+  result_previous_snapshot_id UUID NULL,
+  result_new_snapshot_id UUID NULL,
+  result_change_event_id UUID NULL
+);
+
+-- Fast active-execution lookup for dedupe: at most one pending/running per policy per owner.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_check_executions_active_dedupe
+  ON tracked_policy_check_executions (tracked_policy_id, subject_type, subject_id)
+  WHERE status IN ('pending', 'running');
+
+CREATE INDEX IF NOT EXISTS idx_check_executions_policy_created
+  ON tracked_policy_check_executions (tracked_policy_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_check_executions_owner_created
+  ON tracked_policy_check_executions (subject_type, subject_id, created_at DESC);
 """
 
 
@@ -361,7 +402,7 @@ class PostgresStorage:
         with self.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    "TRUNCATE TABLE policy_change_events, policy_snapshots, reports, agreements, tracked_policies;"
+                    "TRUNCATE TABLE tracked_policy_check_executions, policy_change_events, policy_snapshots, reports, agreements, tracked_policies;"
                 )
             conn.commit()
 
@@ -1335,3 +1376,187 @@ def _policy_change_event_from_row(row: dict | None) -> StoredPolicyChangeEvent:
         new_section_count=row.get("new_section_count"),
         section_delta=row.get("section_delta"),
     )
+
+
+_CHECK_EXECUTION_COLUMNS = """
+  id, tracked_policy_id, subject_type, subject_id, status,
+  created_at, started_at, completed_at,
+  failure_code, failure_stage, failure_message, failure_retryable,
+  result_snapshot_created, result_previous_snapshot_id,
+  result_new_snapshot_id, result_change_event_id
+"""
+
+
+def _check_execution_from_row(row: dict | None) -> StoredTrackedPolicyCheckExecution:
+    """Map a DB row dict to ``StoredTrackedPolicyCheckExecution``."""
+
+    if row is None:
+        raise ValueError("Check execution row cannot be None.")
+    return StoredTrackedPolicyCheckExecution(
+        id=row["id"],
+        tracked_policy_id=row["tracked_policy_id"],
+        subject_type=row["subject_type"],
+        subject_id=row["subject_id"],
+        status=normalize_tracked_policy_check_execution_status(row["status"]),
+        created_at=row["created_at"],
+        started_at=row.get("started_at"),
+        completed_at=row.get("completed_at"),
+        failure_code=row.get("failure_code"),
+        failure_stage=row.get("failure_stage"),
+        failure_message=row.get("failure_message"),
+        failure_retryable=row.get("failure_retryable"),
+        result_snapshot_created=row.get("result_snapshot_created"),
+        result_previous_snapshot_id=row.get("result_previous_snapshot_id"),
+        result_new_snapshot_id=row.get("result_new_snapshot_id"),
+        result_change_event_id=row.get("result_change_event_id"),
+    )
+
+
+class PostgresTrackedPolicyCheckExecutionRepository:
+    """Postgres implementation of tracked-policy check execution persistence."""
+
+    def __init__(self, storage: PostgresStorage) -> None:
+        self._storage = storage
+
+    def create(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicyCheckExecution:
+        execution_id = uuid4()
+        try:
+            with self._storage.connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        INSERT INTO tracked_policy_check_executions (
+                          id, tracked_policy_id, subject_type, subject_id, status
+                        ) VALUES (%s, %s, %s, %s, 'pending')
+                        RETURNING {_CHECK_EXECUTION_COLUMNS};
+                        """,
+                        (execution_id, tracked_policy_id, subject_type, subject_id),
+                    )
+                    row = cursor.fetchone()
+                conn.commit()
+        except psycopg_errors.UniqueViolation as error:
+            raise ActiveTrackedPolicyCheckExecutionConflictError(
+                "An active tracked-policy check execution already exists for this policy."
+            ) from error
+        return _check_execution_from_row(row)
+
+    def get_by_id(
+        self,
+        *,
+        execution_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicyCheckExecution | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {_CHECK_EXECUTION_COLUMNS}
+                    FROM tracked_policy_check_executions
+                    WHERE id = %s AND subject_type = %s AND subject_id = %s;
+                    """,
+                    (execution_id, subject_type, subject_id),
+                )
+                row = cursor.fetchone()
+        return _check_execution_from_row(row) if row else None
+
+    def get_active_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicyCheckExecution | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {_CHECK_EXECUTION_COLUMNS}
+                    FROM tracked_policy_check_executions
+                    WHERE tracked_policy_id = %s
+                      AND subject_type = %s
+                      AND subject_id = %s
+                      AND status IN ('pending', 'running')
+                    ORDER BY created_at DESC
+                    LIMIT 1;
+                    """,
+                    (tracked_policy_id, subject_type, subject_id),
+                )
+                row = cursor.fetchone()
+        return _check_execution_from_row(row) if row else None
+
+    def mark_running(
+        self,
+        *,
+        execution_id: UUID,
+    ) -> StoredTrackedPolicyCheckExecution | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    UPDATE tracked_policy_check_executions
+                    SET status = 'running', started_at = NOW()
+                    WHERE id = %s AND status = 'pending'
+                    RETURNING {_CHECK_EXECUTION_COLUMNS};
+                    """,
+                    (execution_id,),
+                )
+                row = cursor.fetchone()
+            conn.commit()
+        return _check_execution_from_row(row) if row else None
+
+    def mark_completed(
+        self,
+        *,
+        execution_id: UUID,
+        status: TrackedPolicyCheckExecutionStatus,
+        failure_code: str | None = None,
+        failure_stage: str | None = None,
+        failure_message: str | None = None,
+        failure_retryable: bool | None = None,
+        result_snapshot_created: bool | None = None,
+        result_previous_snapshot_id: UUID | None = None,
+        result_new_snapshot_id: UUID | None = None,
+        result_change_event_id: UUID | None = None,
+    ) -> StoredTrackedPolicyCheckExecution | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    UPDATE tracked_policy_check_executions
+                    SET status = %s,
+                        started_at = COALESCE(started_at, NOW()),
+                        completed_at = NOW(),
+                        failure_code = %s,
+                        failure_stage = %s,
+                        failure_message = %s,
+                        failure_retryable = %s,
+                        result_snapshot_created = %s,
+                        result_previous_snapshot_id = %s,
+                        result_new_snapshot_id = %s,
+                        result_change_event_id = %s
+                    WHERE id = %s AND status IN ('pending', 'running')
+                    RETURNING {_CHECK_EXECUTION_COLUMNS};
+                    """,
+                    (
+                        status.value,
+                        failure_code,
+                        failure_stage,
+                        failure_message,
+                        failure_retryable,
+                        result_snapshot_created,
+                        result_previous_snapshot_id,
+                        result_new_snapshot_id,
+                        result_change_event_id,
+                        execution_id,
+                    ),
+                )
+                row = cursor.fetchone()
+            conn.commit()
+        return _check_execution_from_row(row) if row else None

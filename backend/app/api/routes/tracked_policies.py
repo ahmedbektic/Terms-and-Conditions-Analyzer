@@ -10,12 +10,15 @@ from ..deps import (
     get_tracked_policy_versions_service,
 )
 from ..mappers.tracked_policies import (
+    to_tracked_policy_check_execution_envelope,
     to_tracked_policy_create_response,
     to_tracked_policy_response,
     to_tracked_policy_snapshot_comparison_response,
     to_tracked_policy_snapshot_response,
 )
 from ...schemas.tracked_policies import (
+    TrackedPolicyCheckExecutionEnvelope,
+    TrackedPolicyCheckExecutionResponse,
     TrackedPolicyCreateRequest,
     TrackedPolicyCreateResponse,
     TrackedPolicyResponse,
@@ -23,11 +26,14 @@ from ...schemas.tracked_policies import (
     TrackedPolicySnapshotResponse,
 )
 from ...services.request_subject import RequestSubject
+from ...services.tracked_policy_check_execution_service import (
+    TrackedPolicyCheckExecutionNotFoundError,
+    TrackedPolicyCheckExecutionResult,
+)
 from ...services.tracked_policy_service import (
     DuplicateTrackedPolicyError,
     InvalidTrackedPolicySourceError,
     TrackedPolicyBaselineReportError,
-    TrackedPolicyCheckFailedError,
     TrackedPolicyNotFoundError,
     TrackedPolicyService,
 )
@@ -81,28 +87,47 @@ def list_tracked_policies(
     return [to_tracked_policy_response(tracked_policy) for tracked_policy in tracked_policies]
 
 
-@router.post("/{tracked_policy_id}/check", response_model=TrackedPolicyResponse)
+@router.post("/{tracked_policy_id}/check", response_model=TrackedPolicyCheckExecutionEnvelope)
 def check_tracked_policy(
     tracked_policy_id: UUID,
     subject: RequestSubject = Depends(get_request_subject),
     service: TrackedPolicyService = Depends(get_tracked_policy_service),
-) -> TrackedPolicyResponse:
+) -> TrackedPolicyCheckExecutionEnvelope:
     """Fetch the live policy page, store a snapshot when text changes, and refresh status."""
 
     try:
-        tracked_policy = service.check_tracked_policy(
+        execution_result = service.check_tracked_policy(
             subject=subject,
             tracked_policy_id=tracked_policy_id,
         )
-    except TrackedPolicyCheckFailedError as error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(error),
-        ) from error
     except TrackedPolicyNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 
-    return to_tracked_policy_response(tracked_policy)
+    return to_tracked_policy_check_execution_envelope(execution_result)
+
+
+@router.get("/executions/{execution_id}", response_model=TrackedPolicyCheckExecutionResponse)
+def get_tracked_policy_execution(
+    execution_id: UUID,
+    subject: RequestSubject = Depends(get_request_subject),
+    service: TrackedPolicyService = Depends(get_tracked_policy_service),
+) -> TrackedPolicyCheckExecutionResponse:
+    """Retrieve the status of a specific tracked-policy check execution."""
+
+    try:
+        execution = service.get_tracked_policy_execution(
+            subject=subject,
+            execution_id=execution_id,
+        )
+    except TrackedPolicyCheckExecutionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+    return to_tracked_policy_check_execution_envelope(
+        execution_result=TrackedPolicyCheckExecutionResult(
+            execution=execution,
+            tracked_policy=None,
+        )
+    ).execution
 
 
 @router.get(

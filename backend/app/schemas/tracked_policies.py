@@ -85,3 +85,26 @@ class TrackedPolicySnapshotComparisonResponse(BaseModel):
     comparison_outcome: Literal["meaningful_changes", "no_meaningful_changes"]
     normalization_notice: str | None
     render_mode: Literal["split_or_unified"]
+
+
+class TrackedPolicyCheckExecutionResponse(BaseModel):
+    """Serialized tracked-policy check execution payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    tracked_policy_id: UUID
+    status: str
+    result_snapshot_created: bool | None
+    failure_message: str | None
+    execute_started_at: datetime | None
+    execute_finished_at: datetime | None
+
+
+class TrackedPolicyCheckExecutionEnvelope(BaseModel):
+    """Response payload enclosing the execution model and optionally the resulting policy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    execution: TrackedPolicyCheckExecutionResponse
+    tracked_policy: TrackedPolicyResponse | None

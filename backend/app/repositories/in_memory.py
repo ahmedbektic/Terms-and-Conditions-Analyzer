@@ -9,6 +9,7 @@ from dataclasses import replace
 from uuid import UUID, uuid4
 
 from .analysis_status import AnalysisLifecycleStatus, normalize_analysis_lifecycle_status
+from .errors import ActiveTrackedPolicyCheckExecutionConflictError
 from .models import (
     PolicyChangeEventCreateInput,
     PolicySnapshotAppendResult,
@@ -19,6 +20,7 @@ from .models import (
     StoredPolicySnapshot,
     StoredReport,
     StoredTrackedPolicy,
+    StoredTrackedPolicyCheckExecution,
 )
 from .policy_capture_status import (
     PolicyCaptureStatus,
@@ -33,6 +35,10 @@ from .report_capture_kind import (
     ReportContentCaptureKind,
     normalize_report_content_capture_kind,
 )
+from .tracked_policy_check_execution_status import (
+    TrackedPolicyCheckExecutionStatus,
+    is_active_execution_status,
+)
 
 
 class InMemoryStorage:
@@ -44,6 +50,7 @@ class InMemoryStorage:
         self.tracked_policies: dict[UUID, StoredTrackedPolicy] = {}
         self.policy_snapshots: dict[UUID, list[StoredPolicySnapshot]] = {}
         self.policy_change_events: dict[UUID, list[StoredPolicyChangeEvent]] = {}
+        self.check_executions: dict[UUID, StoredTrackedPolicyCheckExecution] = {}
 
     def clear(self) -> None:
         self.agreements.clear()
@@ -51,6 +58,7 @@ class InMemoryStorage:
         self.tracked_policies.clear()
         self.policy_snapshots.clear()
         self.policy_change_events.clear()
+        self.check_executions.clear()
 
 
 class InMemoryAgreementRepository:
@@ -491,3 +499,135 @@ class InMemoryPolicyChangeEventRepository:
     ) -> list[StoredPolicyChangeEvent]:
         events = self._storage.policy_change_events.get(tracked_policy_id, [])
         return list(reversed(events))
+
+
+class InMemoryTrackedPolicyCheckExecutionRepository:
+    """In-memory implementation of tracked-policy check execution persistence."""
+
+    def __init__(self, storage: InMemoryStorage) -> None:
+        self._storage = storage
+
+    def create(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicyCheckExecution:
+        existing_active_execution = self.get_active_for_tracked_policy(
+            tracked_policy_id=tracked_policy_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+        )
+        if existing_active_execution is not None:
+            raise ActiveTrackedPolicyCheckExecutionConflictError(
+                "An active tracked-policy check execution already exists for this policy."
+            )
+
+        now = datetime.now(timezone.utc)
+        execution = StoredTrackedPolicyCheckExecution(
+            id=uuid4(),
+            tracked_policy_id=tracked_policy_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            status=TrackedPolicyCheckExecutionStatus.PENDING,
+            created_at=now,
+            started_at=None,
+            completed_at=None,
+            failure_code=None,
+            failure_stage=None,
+            failure_message=None,
+            failure_retryable=None,
+            result_snapshot_created=None,
+            result_previous_snapshot_id=None,
+            result_new_snapshot_id=None,
+            result_change_event_id=None,
+        )
+        self._storage.check_executions[execution.id] = execution
+        return execution
+
+    def get_by_id(
+        self,
+        *,
+        execution_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicyCheckExecution | None:
+        execution = self._storage.check_executions.get(execution_id)
+        if execution is None:
+            return None
+        if execution.subject_type != subject_type or execution.subject_id != subject_id:
+            return None
+        return execution
+
+    def get_active_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicyCheckExecution | None:
+        for execution in self._storage.check_executions.values():
+            if (
+                execution.tracked_policy_id == tracked_policy_id
+                and execution.subject_type == subject_type
+                and execution.subject_id == subject_id
+                and is_active_execution_status(execution.status)
+            ):
+                return execution
+        return None
+
+    def mark_running(
+        self,
+        *,
+        execution_id: UUID,
+    ) -> StoredTrackedPolicyCheckExecution | None:
+        execution = self._storage.check_executions.get(execution_id)
+        if execution is None:
+            return None
+        if execution.status != TrackedPolicyCheckExecutionStatus.PENDING:
+            return None
+        updated = replace(
+            execution,
+            status=TrackedPolicyCheckExecutionStatus.RUNNING,
+            started_at=datetime.now(timezone.utc),
+        )
+        self._storage.check_executions[execution_id] = updated
+        return updated
+
+    def mark_completed(
+        self,
+        *,
+        execution_id: UUID,
+        status: TrackedPolicyCheckExecutionStatus,
+        failure_code: str | None = None,
+        failure_stage: str | None = None,
+        failure_message: str | None = None,
+        failure_retryable: bool | None = None,
+        result_snapshot_created: bool | None = None,
+        result_previous_snapshot_id: UUID | None = None,
+        result_new_snapshot_id: UUID | None = None,
+        result_change_event_id: UUID | None = None,
+    ) -> StoredTrackedPolicyCheckExecution | None:
+        execution = self._storage.check_executions.get(execution_id)
+        if execution is None:
+            return None
+        if not is_active_execution_status(execution.status):
+            return None
+        now = datetime.now(timezone.utc)
+        updated = replace(
+            execution,
+            status=status,
+            started_at=execution.started_at or now,
+            completed_at=now,
+            failure_code=failure_code,
+            failure_stage=failure_stage,
+            failure_message=failure_message,
+            failure_retryable=failure_retryable,
+            result_snapshot_created=result_snapshot_created,
+            result_previous_snapshot_id=result_previous_snapshot_id,
+            result_new_snapshot_id=result_new_snapshot_id,
+            result_change_event_id=result_change_event_id,
+        )
+        self._storage.check_executions[execution_id] = updated
+        return updated

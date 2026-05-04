@@ -20,11 +20,13 @@ from .models import (
     StoredPolicySnapshot,
     StoredReport,
     StoredTrackedPolicy,
+    StoredTrackedPolicyCheckExecution,
 )
 from .policy_capture_status import PolicyCaptureStatus
 from .policy_change_status import PolicyChangeStatus
 from .policy_tracking_status import PolicyTrackingStatus
 from .report_capture_kind import ReportContentCaptureKind
+from .tracked_policy_check_execution_status import TrackedPolicyCheckExecutionStatus
 
 
 class AgreementRepository(Protocol):
@@ -201,3 +203,52 @@ class PolicyChangeEventRepository(Protocol):
         *,
         tracked_policy_id: UUID,
     ) -> list[StoredPolicyChangeEvent]: ...
+
+
+class TrackedPolicyCheckExecutionRepository(Protocol):
+    """Persistence contract for tracked-policy check execution records."""
+
+    def create(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicyCheckExecution: ...
+
+    def get_by_id(
+        self,
+        *,
+        execution_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicyCheckExecution | None: ...
+
+    def get_active_for_tracked_policy(
+        self,
+        *,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+    ) -> StoredTrackedPolicyCheckExecution | None: ...
+
+    def mark_running(
+        self,
+        *,
+        execution_id: UUID,
+    ) -> StoredTrackedPolicyCheckExecution | None: ...
+
+    def mark_completed(
+        self,
+        *,
+        execution_id: UUID,
+        status: TrackedPolicyCheckExecutionStatus,
+        failure_code: str | None = None,
+        failure_stage: str | None = None,
+        failure_message: str | None = None,
+        failure_retryable: bool | None = None,
+        result_snapshot_created: bool | None = None,
+        result_previous_snapshot_id: UUID | None = None,
+        result_new_snapshot_id: UUID | None = None,
+        result_change_event_id: UUID | None = None,
+    ) -> StoredTrackedPolicyCheckExecution | None: ...

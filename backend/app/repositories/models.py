@@ -14,6 +14,7 @@ from .policy_capture_status import PolicyCaptureStatus, PolicySnapshotStatus
 from .policy_change_status import PolicyChangeStatus
 from .policy_tracking_status import PolicyTrackingStatus
 from .report_capture_kind import ReportContentCaptureKind
+from .tracked_policy_check_execution_status import TrackedPolicyCheckExecutionStatus
 
 
 @dataclass(frozen=True)
@@ -167,3 +168,32 @@ class StoredPolicyChangeEvent:
     previous_section_count: int | None
     new_section_count: int | None
     section_delta: int | None
+
+
+@dataclass(frozen=True)
+class StoredTrackedPolicyCheckExecution:
+    """Persisted execution record for one tracked-policy check run.
+
+    This model is separate from ``StoredTrackedPolicy`` intentionally: the
+    tracked-policy row captures current watchlist state, while execution
+    records capture individual check-run lifecycle and audit data.
+    """
+
+    id: UUID
+    tracked_policy_id: UUID
+    subject_type: str
+    subject_id: str
+    status: TrackedPolicyCheckExecutionStatus
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    # structured failure metadata
+    failure_code: str | None
+    failure_stage: str | None
+    failure_message: str | None
+    failure_retryable: bool | None
+    # result correlation — populated on success
+    result_snapshot_created: bool | None
+    result_previous_snapshot_id: UUID | None
+    result_new_snapshot_id: UUID | None
+    result_change_event_id: UUID | None
