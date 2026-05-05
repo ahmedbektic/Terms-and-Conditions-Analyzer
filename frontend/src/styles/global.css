@@ -1180,12 +1180,6 @@ textarea {
   width: 100%;
 }
 
-@media (max-width: 1220px) {
-  .dashboard-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 860px) {
   .form-grid-submission {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1209,6 +1203,11 @@ textarea {
 }
 
 @media (max-width: 640px) {
+  /* Aligns with typical sm breakpoint (~640px): stack workbench columns on phones only; tablet widths keep two columns. */
+  .dashboard-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .dashboard {
     padding: 16px 12px 24px;
   }
@@ -1236,5 +1235,21 @@ textarea {
   .auth-mode-toggle {
     width: auto;
     align-self: flex-start;
+  }
+
+  /* Touch-friendly targets for primary dashboard controls (WCAG recommends ~44×44 CSS px). */
+  .dashboard .button-primary,
+  .dashboard .button-secondary {
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+
+  .dashboard .history-button {
+    min-height: 44px;
+  }
+
+  .header-actions .theme-toggle-button {
+    min-height: 44px;
+    min-width: 44px;
   }
 }

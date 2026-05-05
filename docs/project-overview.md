@@ -149,6 +149,7 @@ Major modules:
   - `frontend/src/features/dashboard/hooks/useDashboardReports.ts`
   - `frontend/src/features/dashboard/components/*`
   - `frontend/src/features/dashboard/mappers.ts`
+  - Responsive workbench layout: two columns by default; stacks to a single column at viewport widths ≤640px (`frontend/src/styles/global.css`).
 - API transport seam:
   - `frontend/src/lib/api/client.ts`
   - `frontend/src/lib/api/createDashboardApiClient.ts`

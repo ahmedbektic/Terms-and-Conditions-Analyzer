@@ -38,6 +38,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins,
     base: '/',
+    test: {
+      setupFiles: ['./tests/vitest-setup.ts'],
+    },
     build: {
       outDir: 'dist',
       emptyOutDir: true,
