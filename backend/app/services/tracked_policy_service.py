@@ -42,6 +42,7 @@ from .analysis_service import (
     InvalidSubmissionError,
     ReportNotFoundError,
 )
+from .policy_change_email_notification_service import PolicyChangeEmailNotificationService
 from .policy_text_canonicalizer import PolicyTextCanonicalizer
 from .policy_snapshot_service import (
     PolicySnapshotCheckFailedError,
@@ -105,6 +106,7 @@ class TrackedPolicyService:
         policy_snapshot_service: PolicySnapshotService | None = None,
         check_execution_service: TrackedPolicyCheckExecutionService | None = None,
         policy_text_canonicalizer: PolicyTextCanonicalizer | None = None,
+        policy_change_notification_service: PolicyChangeEmailNotificationService | None = None,
     ) -> None:
         self._tracked_policy_repository = tracked_policy_repository
         self._policy_snapshot_repository = policy_snapshot_repository
@@ -126,6 +128,7 @@ class TrackedPolicyService:
                 tracked_policy_repository=tracked_policy_repository,
                 check_execution_repository=check_execution_repository,
                 policy_snapshot_service=self._policy_snapshot_service,
+                policy_change_notification_service=policy_change_notification_service,
             )
         )
 

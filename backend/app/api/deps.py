@@ -16,7 +16,9 @@ from ..auth import (
 from ..core.config import settings
 from ..repositories.in_memory import (
     InMemoryAgreementRepository,
+    InMemoryNotificationPreferenceRepository,
     InMemoryPolicyChangeEventRepository,
+    InMemoryPolicyChangeNotificationRepository,
     InMemoryPolicySnapshotRepository,
     InMemoryReportRepository,
     InMemoryTrackedPolicyCheckExecutionRepository,
@@ -30,6 +32,10 @@ from ..services.analysis_execution import build_analysis_execution_strategy
 from ..security import RequestRateLimiter, build_default_rate_limit_policies
 from ..services.request_subject import RequestSubject
 from ..services.submission_preparation import SubmissionPreparationService
+from ..services.policy_change_email_notification_service import (
+    LoggingPlainTextEmailSender,
+    PolicyChangeEmailNotificationService,
+)
 from ..services.tracked_policy_service import TrackedPolicyService
 from ..services.tracked_policy_versions_service import TrackedPolicyVersionsService
 from ..services.web_source import PublicWebSourceInspector
@@ -48,7 +54,9 @@ def _build_persistence_dependencies():
 
         from ..persistence.postgres import (  # Imported lazily to keep memory-mode lightweight.
             PostgresAgreementRepository,
+            PostgresNotificationPreferenceRepository,
             PostgresPolicyChangeEventRepository,
+            PostgresPolicyChangeNotificationRepository,
             PostgresPolicySnapshotRepository,
             PostgresReportRepository,
             PostgresTrackedPolicyCheckExecutionRepository,
@@ -66,6 +74,8 @@ def _build_persistence_dependencies():
         policy_snapshot_repository = PostgresPolicySnapshotRepository(storage)
         policy_change_event_repository = PostgresPolicyChangeEventRepository(storage)
         check_execution_repository = PostgresTrackedPolicyCheckExecutionRepository(storage)
+        notification_preference_repository = PostgresNotificationPreferenceRepository(storage)
+        policy_change_notification_repository = PostgresPolicyChangeNotificationRepository(storage)
         return (
             agreement_repository,
             report_repository,
@@ -73,6 +83,8 @@ def _build_persistence_dependencies():
             check_execution_repository,
             policy_snapshot_repository,
             policy_change_event_repository,
+            notification_preference_repository,
+            policy_change_notification_repository,
             storage,
         )
 
@@ -88,6 +100,8 @@ def _build_persistence_dependencies():
     check_execution_repository = InMemoryTrackedPolicyCheckExecutionRepository(storage)
     policy_snapshot_repository = InMemoryPolicySnapshotRepository(storage)
     policy_change_event_repository = InMemoryPolicyChangeEventRepository(storage)
+    notification_preference_repository = InMemoryNotificationPreferenceRepository(storage)
+    policy_change_notification_repository = InMemoryPolicyChangeNotificationRepository(storage)
     return (
         agreement_repository,
         report_repository,
@@ -95,6 +109,8 @@ def _build_persistence_dependencies():
         check_execution_repository,
         policy_snapshot_repository,
         policy_change_event_repository,
+        notification_preference_repository,
+        policy_change_notification_repository,
         storage,
     )
 
@@ -106,8 +122,39 @@ def _build_persistence_dependencies():
     _check_execution_repository,
     _policy_snapshot_repository,
     _policy_change_event_repository,
+    _notification_preference_repository,
+    _policy_change_notification_repository,
     _persistence_storage,
 ) = _build_persistence_dependencies()
+
+
+def _build_plain_text_email_sender():
+    backend = settings.policy_change_email_backend
+    if backend in {"", "log", "logging"}:
+        return LoggingPlainTextEmailSender()
+
+    if backend == "none":
+
+        class _DiscardingPlainTextEmailSender:
+            def send_plain_text(self, *, to_email: str, subject_line: str, body_text: str) -> None:
+                _ = (to_email, subject_line, body_text)
+
+        return _DiscardingPlainTextEmailSender()
+
+    raise RuntimeError(
+        f"Unsupported POLICY_CHANGE_EMAIL_BACKEND={backend!r}. "
+        "Expected log (default) or none."
+    )
+
+
+_plain_text_email_sender = _build_plain_text_email_sender()
+_policy_change_email_notification_service = PolicyChangeEmailNotificationService(
+    preference_repository=_notification_preference_repository,
+    notification_repository=_policy_change_notification_repository,
+    tracked_policy_repository=_tracked_policy_repository,
+    email_sender=_plain_text_email_sender,
+    dashboard_base_url=settings.dashboard_public_base_url,
+)
 
 
 def _build_subject_resolver() -> AuthSubjectResolver:
@@ -180,6 +227,7 @@ _tracked_policy_service = TrackedPolicyService(
     analysis_service=_analysis_service,
     policy_change_event_repository=_policy_change_event_repository,
     public_web_source_inspector=_public_web_source_inspector,
+    policy_change_notification_service=_policy_change_email_notification_service,
 )
 _tracked_policy_versions_service = TrackedPolicyVersionsService(
     tracked_policy_repository=_tracked_policy_repository,
@@ -204,6 +252,12 @@ def get_tracked_policy_versions_service() -> TrackedPolicyVersionsService:
     """Return the singleton tracked-policy history/compare service."""
 
     return _tracked_policy_versions_service
+
+
+def get_notification_preference_repository():
+    """Return notification preference persistence used by preference routes."""
+
+    return _notification_preference_repository
 
 
 def get_request_rate_limiter() -> RequestRateLimiter:
@@ -246,6 +300,7 @@ def get_request_subject(
     return RequestSubject(
         subject_type=resolved.subject_type,
         subject_id=resolved.subject_id,
+        owner_email=resolved.email,
     )
 
 

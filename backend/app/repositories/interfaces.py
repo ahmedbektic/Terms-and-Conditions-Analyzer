@@ -16,13 +16,17 @@ from .models import (
     PolicySnapshotCreateInput,
     StoredAgreement,
     StoredFlaggedClause,
+    StoredNotificationPreference,
     StoredPolicyChangeEvent,
+    StoredPolicyChangeNotification,
+    StoredPolicyChangeNotificationStatusEvent,
     StoredPolicySnapshot,
     StoredReport,
     StoredTrackedPolicy,
     StoredTrackedPolicyCheckExecution,
 )
 from .policy_capture_status import PolicyCaptureStatus
+from .policy_change_notification_delivery_status import PolicyChangeNotificationDeliveryStatus
 from .policy_change_status import PolicyChangeStatus
 from .policy_tracking_status import PolicyTrackingStatus
 from .report_capture_kind import ReportContentCaptureKind
@@ -252,3 +256,60 @@ class TrackedPolicyCheckExecutionRepository(Protocol):
         result_new_snapshot_id: UUID | None = None,
         result_change_event_id: UUID | None = None,
     ) -> StoredTrackedPolicyCheckExecution | None: ...
+
+
+class NotificationPreferenceRepository(Protocol):
+    """Persist per-owner notification preferences."""
+
+    def get_effective_policy_change_email_enabled(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+    ) -> bool: ...
+
+    def upsert_policy_change_email_enabled(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        policy_change_email_enabled: bool,
+    ) -> StoredNotificationPreference: ...
+
+
+class PolicyChangeNotificationRepository(Protocol):
+    """Persist policy-change email notifications and delivery history."""
+
+    def get_by_change_event_id(
+        self,
+        *,
+        policy_change_event_id: UUID,
+    ) -> StoredPolicyChangeNotification | None: ...
+
+    def get_by_id(self, *, notification_id: UUID) -> StoredPolicyChangeNotification | None: ...
+
+    def create_notification(
+        self,
+        *,
+        policy_change_event_id: UUID,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+        recipient_email: str | None,
+        initial_status: PolicyChangeNotificationDeliveryStatus,
+        initial_detail: str | None,
+    ) -> StoredPolicyChangeNotification: ...
+
+    def transition_status(
+        self,
+        *,
+        notification_id: UUID,
+        status: PolicyChangeNotificationDeliveryStatus,
+        detail: str | None,
+    ) -> StoredPolicyChangeNotification | None: ...
+
+    def list_status_history(
+        self,
+        *,
+        notification_id: UUID,
+    ) -> list[StoredPolicyChangeNotificationStatusEvent]: ...

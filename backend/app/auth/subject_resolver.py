@@ -17,6 +17,7 @@ class ResolvedSubject:
 
     subject_type: str
     subject_id: str
+    email: str | None = None
 
 
 class SubjectResolutionError(Exception):
@@ -64,6 +65,7 @@ class AuthSubjectResolver:
         return ResolvedSubject(
             subject_type=AUTHENTICATED_SUBJECT_TYPE,
             subject_id=principal.user_id,
+            email=principal.email,
         )
 
 

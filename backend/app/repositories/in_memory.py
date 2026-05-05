@@ -16,7 +16,10 @@ from .models import (
     PolicySnapshotCreateInput,
     StoredAgreement,
     StoredFlaggedClause,
+    StoredNotificationPreference,
     StoredPolicyChangeEvent,
+    StoredPolicyChangeNotification,
+    StoredPolicyChangeNotificationStatusEvent,
     StoredPolicySnapshot,
     StoredReport,
     StoredTrackedPolicy,
@@ -27,6 +30,10 @@ from .policy_capture_status import (
     PolicySnapshotStatus,
     normalize_policy_capture_status,
     normalize_policy_snapshot_status,
+)
+from .policy_change_notification_delivery_status import (
+    PolicyChangeNotificationDeliveryStatus,
+    normalize_policy_change_notification_delivery_status,
 )
 from .policy_change_status import PolicyChangeStatus, normalize_policy_change_status
 from .policy_snapshot_hash import build_policy_snapshot_content_hash
@@ -51,6 +58,10 @@ class InMemoryStorage:
         self.policy_snapshots: dict[UUID, list[StoredPolicySnapshot]] = {}
         self.policy_change_events: dict[UUID, list[StoredPolicyChangeEvent]] = {}
         self.check_executions: dict[UUID, StoredTrackedPolicyCheckExecution] = {}
+        self.notification_preferences: dict[tuple[str, str], StoredNotificationPreference] = {}
+        self.policy_change_notifications: dict[UUID, StoredPolicyChangeNotification] = {}
+        self.policy_change_notifications_by_event: dict[UUID, UUID] = {}
+        self.policy_change_notification_status_events: dict[UUID, list[StoredPolicyChangeNotificationStatusEvent]] = {}
 
     def clear(self) -> None:
         self.agreements.clear()
@@ -59,6 +70,10 @@ class InMemoryStorage:
         self.policy_snapshots.clear()
         self.policy_change_events.clear()
         self.check_executions.clear()
+        self.notification_preferences.clear()
+        self.policy_change_notifications.clear()
+        self.policy_change_notifications_by_event.clear()
+        self.policy_change_notification_status_events.clear()
 
 
 class InMemoryAgreementRepository:
@@ -631,3 +646,144 @@ class InMemoryTrackedPolicyCheckExecutionRepository:
         )
         self._storage.check_executions[execution_id] = updated
         return updated
+
+
+class InMemoryNotificationPreferenceRepository:
+    """In-memory notification preference persistence."""
+
+    def __init__(self, storage: InMemoryStorage) -> None:
+        self._storage = storage
+
+    def get_effective_policy_change_email_enabled(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+    ) -> bool:
+        row = self._storage.notification_preferences.get((subject_type, subject_id))
+        if row is None:
+            return True
+        return row.policy_change_email_enabled
+
+    def upsert_policy_change_email_enabled(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        policy_change_email_enabled: bool,
+    ) -> StoredNotificationPreference:
+        now = datetime.now(timezone.utc)
+        stored = StoredNotificationPreference(
+            subject_type=subject_type,
+            subject_id=subject_id,
+            policy_change_email_enabled=policy_change_email_enabled,
+            updated_at=now,
+        )
+        self._storage.notification_preferences[(subject_type, subject_id)] = stored
+        return stored
+
+
+class InMemoryPolicyChangeNotificationRepository:
+    """In-memory notification rows and append-only status history."""
+
+    def __init__(self, storage: InMemoryStorage) -> None:
+        self._storage = storage
+
+    def count_notifications(self) -> int:
+        return len(self._storage.policy_change_notifications)
+
+    def get_by_change_event_id(
+        self,
+        *,
+        policy_change_event_id: UUID,
+    ) -> StoredPolicyChangeNotification | None:
+        notification_id = self._storage.policy_change_notifications_by_event.get(
+            policy_change_event_id
+        )
+        if notification_id is None:
+            return None
+        return self._storage.policy_change_notifications.get(notification_id)
+
+    def get_by_id(self, *, notification_id: UUID) -> StoredPolicyChangeNotification | None:
+        return self._storage.policy_change_notifications.get(notification_id)
+
+    def create_notification(
+        self,
+        *,
+        policy_change_event_id: UUID,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+        recipient_email: str | None,
+        initial_status: PolicyChangeNotificationDeliveryStatus,
+        initial_detail: str | None,
+    ) -> StoredPolicyChangeNotification:
+        if policy_change_event_id in self._storage.policy_change_notifications_by_event:
+            raise ValueError("Notification already exists for this policy change event.")
+
+        notification_id = uuid4()
+        now = datetime.now(timezone.utc)
+        normalized_status = normalize_policy_change_notification_delivery_status(initial_status)
+        stored = StoredPolicyChangeNotification(
+            id=notification_id,
+            policy_change_event_id=policy_change_event_id,
+            tracked_policy_id=tracked_policy_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            recipient_email=recipient_email,
+            status=normalized_status,
+            created_at=now,
+            updated_at=now,
+        )
+        self._storage.policy_change_notifications[notification_id] = stored
+        self._storage.policy_change_notifications_by_event[policy_change_event_id] = notification_id
+        self._storage.policy_change_notification_status_events.setdefault(notification_id, [])
+        self._record_event(notification_id, normalized_status, initial_detail, recorded_at=now)
+        return stored
+
+    def transition_status(
+        self,
+        *,
+        notification_id: UUID,
+        status: PolicyChangeNotificationDeliveryStatus,
+        detail: str | None,
+    ) -> StoredPolicyChangeNotification | None:
+        existing = self._storage.policy_change_notifications.get(notification_id)
+        if existing is None:
+            return None
+        normalized = normalize_policy_change_notification_delivery_status(status)
+        now = datetime.now(timezone.utc)
+        updated = replace(
+            existing,
+            status=normalized,
+            updated_at=now,
+        )
+        self._storage.policy_change_notifications[notification_id] = updated
+        self._record_event(notification_id, normalized, detail, recorded_at=now)
+        return updated
+
+    def list_status_history(
+        self,
+        *,
+        notification_id: UUID,
+    ) -> list[StoredPolicyChangeNotificationStatusEvent]:
+        return list(self._storage.policy_change_notification_status_events.get(notification_id, []))
+
+    def _record_event(
+        self,
+        notification_id: UUID,
+        status: PolicyChangeNotificationDeliveryStatus,
+        detail: str | None,
+        *,
+        recorded_at: datetime,
+    ) -> None:
+        entry = StoredPolicyChangeNotificationStatusEvent(
+            id=uuid4(),
+            notification_id=notification_id,
+            status=status,
+            detail=detail,
+            recorded_at=recorded_at,
+        )
+        self._storage.policy_change_notification_status_events.setdefault(notification_id, []).append(
+            entry
+        )

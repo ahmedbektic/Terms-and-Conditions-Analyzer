@@ -14,6 +14,7 @@ from .policy_capture_status import PolicyCaptureStatus, PolicySnapshotStatus
 from .policy_change_status import PolicyChangeStatus
 from .policy_tracking_status import PolicyTrackingStatus
 from .report_capture_kind import ReportContentCaptureKind
+from .policy_change_notification_delivery_status import PolicyChangeNotificationDeliveryStatus
 from .tracked_policy_check_execution_status import TrackedPolicyCheckExecutionStatus
 
 
@@ -197,3 +198,39 @@ class StoredTrackedPolicyCheckExecution:
     result_previous_snapshot_id: UUID | None
     result_new_snapshot_id: UUID | None
     result_change_event_id: UUID | None
+
+
+@dataclass(frozen=True)
+class StoredNotificationPreference:
+    """Per-owner preference row for outbound communications."""
+
+    subject_type: str
+    subject_id: str
+    policy_change_email_enabled: bool
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredPolicyChangeNotification:
+    """One durable notification attempt tied to a single change event."""
+
+    id: UUID
+    policy_change_event_id: UUID
+    tracked_policy_id: UUID
+    subject_type: str
+    subject_id: str
+    recipient_email: str | None
+    status: PolicyChangeNotificationDeliveryStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredPolicyChangeNotificationStatusEvent:
+    """Append-only delivery history entry."""
+
+    id: UUID
+    notification_id: UUID
+    status: PolicyChangeNotificationDeliveryStatus
+    detail: str | None
+    recorded_at: datetime

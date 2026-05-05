@@ -26,6 +26,7 @@ from ..repositories.models import (
     PolicyChangeEventCreateInput,
     PolicySnapshotAppendResult,
     PolicySnapshotCreateInput,
+    StoredPolicyChangeEvent,
     StoredPolicySnapshot,
     StoredTrackedPolicy,
 )
@@ -66,6 +67,7 @@ class PolicySnapshotCheckResult:
 
     tracked_policy: StoredTrackedPolicy
     snapshot_created: bool
+    meaningful_change_event_id: UUID | None = None
 
 
 class PolicySnapshotService:
@@ -212,7 +214,7 @@ class PolicySnapshotService:
                 )
             raise PolicySnapshotCheckFailedError(message) from report_creation_error
 
-        self._store_change_event(
+        stored_change_event = self._store_change_event(
             tracked_policy_id=tracked_policy_id,
             previous_snapshot=previous_snapshot,
             new_snapshot=(
@@ -247,9 +249,19 @@ class PolicySnapshotService:
             raise PolicySnapshotTrackedPolicyNotFoundError(
                 f"Tracked policy {tracked_policy_id} was not found."
             )
+        meaningful_change_event_id = None
+        if (
+            stored_change_event is not None
+            and stored_change_event.change_status == PolicyChangeStatus.UPDATED
+            and append_result is not None
+            and append_result.created
+        ):
+            meaningful_change_event_id = stored_change_event.id
+
         return PolicySnapshotCheckResult(
             tracked_policy=updated,
             snapshot_created=bool(append_result and append_result.created),
+            meaningful_change_event_id=meaningful_change_event_id,
         )
 
     def _build_snapshot_input(
@@ -334,13 +346,13 @@ class PolicySnapshotService:
         previous_section_count: int | None,
         new_section_count: int | None,
         section_delta: int | None,
-    ) -> None:
+    ) -> StoredPolicyChangeEvent | None:
         if (
             self._policy_change_event_repository is None
             or change_status == PolicyChangeStatus.NOT_EVALUATED
         ):
-            return
-        self._policy_change_event_repository.create(
+            return None
+        return self._policy_change_event_repository.create(
             event=PolicyChangeEventCreateInput(
                 tracked_policy_id=tracked_policy_id,
                 previous_snapshot_id=(

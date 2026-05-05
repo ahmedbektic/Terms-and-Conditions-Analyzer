@@ -6,6 +6,7 @@ synchronous check logic, adding deduplication and structured failure records.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -25,6 +26,8 @@ from .policy_snapshot_service import (
     PolicySnapshotTrackedPolicyNotFoundError,
 )
 from .request_subject import RequestSubject
+
+logger = logging.getLogger(__name__)
 
 
 class TrackedPolicyNotFoundError(Exception):
@@ -52,10 +55,12 @@ class TrackedPolicyCheckExecutionService:
         tracked_policy_repository: TrackedPolicyRepository,
         check_execution_repository: TrackedPolicyCheckExecutionRepository,
         policy_snapshot_service: PolicySnapshotService,
+        policy_change_notification_service: object | None = None,
     ) -> None:
         self._tracked_policy_repository = tracked_policy_repository
         self._check_execution_repository = check_execution_repository
         self._policy_snapshot_service = policy_snapshot_service
+        self._policy_change_notification_service = policy_change_notification_service
 
     def execute_check(
         self, *, subject: RequestSubject, tracked_policy_id: UUID
@@ -118,9 +123,28 @@ class TrackedPolicyCheckExecutionService:
                 execution_id=execution.id,
                 status=TrackedPolicyCheckExecutionStatus.SUCCEEDED,
                 result_snapshot_created=result.snapshot_created,
+                result_change_event_id=result.meaningful_change_event_id,
             )
             if completed_execution is None:
                 raise ValueError(f"Could not complete execution {execution.id}")
+
+            notifier = self._policy_change_notification_service
+            if notifier is not None:
+                try:
+                    notifier.dispatch_after_successful_check(
+                        subject=subject,
+                        tracked_policy=result.tracked_policy,
+                        meaningful_change_event_id=result.meaningful_change_event_id,
+                        snapshot_created=result.snapshot_created,
+                    )
+                except Exception:
+                    logger.exception(
+                        "policy_change_notification_dispatch_failed",
+                        extra={
+                            "tracked_policy_id": str(tracked_policy_id),
+                            "execution_id": str(execution.id),
+                        },
+                    )
 
             return TrackedPolicyCheckExecutionResult(
                 execution=completed_execution,

@@ -27,7 +27,10 @@ from ..repositories.models import (
     PolicyChangeEventCreateInput,
     PolicySnapshotAppendResult,
     PolicySnapshotCreateInput,
+    StoredNotificationPreference,
     StoredPolicyChangeEvent,
+    StoredPolicyChangeNotification,
+    StoredPolicyChangeNotificationStatusEvent,
     StoredPolicySnapshot,
     StoredAgreement,
     StoredFlaggedClause,
@@ -40,6 +43,10 @@ from ..repositories.policy_capture_status import (
     PolicySnapshotStatus,
     normalize_policy_capture_status,
     normalize_policy_snapshot_status,
+)
+from ..repositories.policy_change_notification_delivery_status import (
+    PolicyChangeNotificationDeliveryStatus,
+    normalize_policy_change_notification_delivery_status,
 )
 from ..repositories.policy_change_status import (
     PolicyChangeStatus,
@@ -334,6 +341,44 @@ CREATE INDEX IF NOT EXISTS idx_check_executions_policy_created
 
 CREATE INDEX IF NOT EXISTS idx_check_executions_owner_created
   ON tracked_policy_check_executions (subject_type, subject_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  policy_change_email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (subject_type, subject_id)
+);
+
+CREATE TABLE IF NOT EXISTS policy_change_notifications (
+  id UUID PRIMARY KEY,
+  policy_change_event_id UUID NOT NULL UNIQUE REFERENCES policy_change_events(id) ON DELETE CASCADE,
+  tracked_policy_id UUID NOT NULL REFERENCES tracked_policies(id) ON DELETE CASCADE,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  recipient_email TEXT NULL,
+  status TEXT NOT NULL CHECK (
+    status IN ('pending', 'sent', 'failed', 'suppressed')
+  ),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_policy_change_notifications_owner_created
+  ON policy_change_notifications (subject_type, subject_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS policy_change_notification_status_events (
+  id UUID PRIMARY KEY,
+  notification_id UUID NOT NULL REFERENCES policy_change_notifications(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK (
+    status IN ('pending', 'sent', 'failed', 'suppressed')
+  ),
+  detail TEXT NULL,
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_policy_change_notification_status_events_notification
+  ON policy_change_notification_status_events (notification_id, recorded_at ASC);
 """
 
 
@@ -402,7 +447,9 @@ class PostgresStorage:
         with self.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    "TRUNCATE TABLE tracked_policy_check_executions, policy_change_events, policy_snapshots, reports, agreements, tracked_policies;"
+                    "TRUNCATE TABLE policy_change_notification_status_events, policy_change_notifications, "
+                    "notification_preferences, tracked_policy_check_executions, policy_change_events, "
+                    "policy_snapshots, reports, agreements, tracked_policies;"
                 )
             conn.commit()
 
@@ -1560,3 +1607,255 @@ class PostgresTrackedPolicyCheckExecutionRepository:
                 row = cursor.fetchone()
             conn.commit()
         return _check_execution_from_row(row) if row else None
+
+
+def _notification_preference_from_row(row: dict | None) -> StoredNotificationPreference:
+    if row is None:
+        raise ValueError("Notification preference row cannot be None.")
+    return StoredNotificationPreference(
+        subject_type=row["subject_type"],
+        subject_id=row["subject_id"],
+        policy_change_email_enabled=bool(row["policy_change_email_enabled"]),
+        updated_at=row["updated_at"],
+    )
+
+
+def _policy_change_notification_from_row(row: dict | None) -> StoredPolicyChangeNotification:
+    if row is None:
+        raise ValueError("Policy change notification row cannot be None.")
+    return StoredPolicyChangeNotification(
+        id=row["id"],
+        policy_change_event_id=row["policy_change_event_id"],
+        tracked_policy_id=row["tracked_policy_id"],
+        subject_type=row["subject_type"],
+        subject_id=row["subject_id"],
+        recipient_email=row.get("recipient_email"),
+        status=normalize_policy_change_notification_delivery_status(row["status"]),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def _policy_change_notification_status_event_from_row(
+    row: dict | None,
+) -> StoredPolicyChangeNotificationStatusEvent:
+    if row is None:
+        raise ValueError("Notification status event row cannot be None.")
+    return StoredPolicyChangeNotificationStatusEvent(
+        id=row["id"],
+        notification_id=row["notification_id"],
+        status=normalize_policy_change_notification_delivery_status(row["status"]),
+        detail=row.get("detail"),
+        recorded_at=row["recorded_at"],
+    )
+
+
+class PostgresNotificationPreferenceRepository:
+    """Postgres-backed notification preference rows."""
+
+    def __init__(self, storage: PostgresStorage) -> None:
+        self._storage = storage
+
+    def get_effective_policy_change_email_enabled(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+    ) -> bool:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT policy_change_email_enabled
+                    FROM notification_preferences
+                    WHERE subject_type = %s AND subject_id = %s;
+                    """,
+                    (subject_type, subject_id),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return True
+        return bool(row["policy_change_email_enabled"])
+
+    def upsert_policy_change_email_enabled(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        policy_change_email_enabled: bool,
+    ) -> StoredNotificationPreference:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO notification_preferences (
+                      subject_type, subject_id, policy_change_email_enabled, updated_at
+                    ) VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (subject_type, subject_id) DO UPDATE SET
+                      policy_change_email_enabled = EXCLUDED.policy_change_email_enabled,
+                      updated_at = NOW()
+                    RETURNING subject_type, subject_id, policy_change_email_enabled, updated_at;
+                    """,
+                    (subject_type, subject_id, policy_change_email_enabled),
+                )
+                row = cursor.fetchone()
+            conn.commit()
+        return _notification_preference_from_row(row)
+
+
+class PostgresPolicyChangeNotificationRepository:
+    """Postgres-backed policy-change notifications."""
+
+    def __init__(self, storage: PostgresStorage) -> None:
+        self._storage = storage
+
+    def get_by_change_event_id(
+        self,
+        *,
+        policy_change_event_id: UUID,
+    ) -> StoredPolicyChangeNotification | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, policy_change_event_id, tracked_policy_id, subject_type,
+                           subject_id, recipient_email, status, created_at, updated_at
+                    FROM policy_change_notifications
+                    WHERE policy_change_event_id = %s;
+                    """,
+                    (policy_change_event_id,),
+                )
+                row = cursor.fetchone()
+        return _policy_change_notification_from_row(row) if row else None
+
+    def get_by_id(self, *, notification_id: UUID) -> StoredPolicyChangeNotification | None:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, policy_change_event_id, tracked_policy_id, subject_type,
+                           subject_id, recipient_email, status, created_at, updated_at
+                    FROM policy_change_notifications
+                    WHERE id = %s;
+                    """,
+                    (notification_id,),
+                )
+                row = cursor.fetchone()
+        return _policy_change_notification_from_row(row) if row else None
+
+    def create_notification(
+        self,
+        *,
+        policy_change_event_id: UUID,
+        tracked_policy_id: UUID,
+        subject_type: str,
+        subject_id: str,
+        recipient_email: str | None,
+        initial_status: PolicyChangeNotificationDeliveryStatus,
+        initial_detail: str | None,
+    ) -> StoredPolicyChangeNotification:
+        notification_id = uuid4()
+        history_id = uuid4()
+        normalized_status = normalize_policy_change_notification_delivery_status(initial_status)
+        stored_row: dict | None = None
+        with self._storage.connection() as conn:
+            try:
+                with conn.transaction():
+                    with conn.cursor() as cursor:
+                        cursor.execute(
+                            """
+                            INSERT INTO policy_change_notifications (
+                              id, policy_change_event_id, tracked_policy_id,
+                              subject_type, subject_id, recipient_email, status,
+                              created_at, updated_at
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                            RETURNING id, policy_change_event_id, tracked_policy_id, subject_type,
+                                      subject_id, recipient_email, status, created_at, updated_at;
+                            """,
+                            (
+                                notification_id,
+                                policy_change_event_id,
+                                tracked_policy_id,
+                                subject_type,
+                                subject_id,
+                                recipient_email,
+                                normalized_status.value,
+                            ),
+                        )
+                        stored_row = cursor.fetchone()
+                        cursor.execute(
+                            """
+                            INSERT INTO policy_change_notification_status_events (
+                              id, notification_id, status, detail, recorded_at
+                            ) VALUES (%s, %s, %s, %s, NOW());
+                            """,
+                            (
+                                history_id,
+                                notification_id,
+                                normalized_status.value,
+                                initial_detail,
+                            ),
+                        )
+            except psycopg_errors.UniqueViolation as error:
+                existing = self.get_by_change_event_id(policy_change_event_id=policy_change_event_id)
+                if existing is not None:
+                    return existing
+                raise RuntimeError(
+                    "policy_change_notification_unique_violation_without_existing_row"
+                ) from error
+        return _policy_change_notification_from_row(stored_row)
+
+    def transition_status(
+        self,
+        *,
+        notification_id: UUID,
+        status: PolicyChangeNotificationDeliveryStatus,
+        detail: str | None,
+    ) -> StoredPolicyChangeNotification | None:
+        history_id = uuid4()
+        normalized = normalize_policy_change_notification_delivery_status(status)
+        updated_row: dict | None = None
+        with self._storage.connection() as conn:
+            with conn.transaction():
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE policy_change_notifications
+                        SET status = %s, updated_at = NOW()
+                        WHERE id = %s
+                        RETURNING id, policy_change_event_id, tracked_policy_id, subject_type,
+                                  subject_id, recipient_email, status, created_at, updated_at;
+                        """,
+                        (normalized.value, notification_id),
+                    )
+                    updated_row = cursor.fetchone()
+                    if updated_row is None:
+                        return None
+                    cursor.execute(
+                        """
+                        INSERT INTO policy_change_notification_status_events (
+                          id, notification_id, status, detail, recorded_at
+                        ) VALUES (%s, %s, %s, %s, NOW());
+                        """,
+                        (history_id, notification_id, normalized.value, detail),
+                    )
+        return _policy_change_notification_from_row(updated_row)
+
+    def list_status_history(
+        self,
+        *,
+        notification_id: UUID,
+    ) -> list[StoredPolicyChangeNotificationStatusEvent]:
+        with self._storage.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, notification_id, status, detail, recorded_at
+                    FROM policy_change_notification_status_events
+                    WHERE notification_id = %s
+                    ORDER BY recorded_at ASC, id ASC;
+                    """,
+                    (notification_id,),
+                )
+                rows = cursor.fetchall()
+        return [_policy_change_notification_status_event_from_row(r) for r in rows]

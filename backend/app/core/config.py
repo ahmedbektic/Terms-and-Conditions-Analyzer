@@ -119,6 +119,12 @@ class Settings:
         "CORS_ALLOWED_ORIGINS",
         "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173",
     )
+    # policy-change emails: use `log` for safe local verification (structured logs only).
+    policy_change_email_backend: str = os.getenv("POLICY_CHANGE_EMAIL_BACKEND", "log").lower()
+    dashboard_public_base_url: str = os.getenv(
+        "DASHBOARD_PUBLIC_BASE_URL",
+        "http://localhost:5173",
+    ).strip()
 
     @property
     def effective_database_url(self) -> str:

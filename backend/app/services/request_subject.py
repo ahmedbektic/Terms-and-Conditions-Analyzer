@@ -14,3 +14,4 @@ class RequestSubject:
 
     subject_type: str
     subject_id: str
+    owner_email: str | None = None
